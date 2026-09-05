@@ -1,0 +1,1066 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>National Land Acquisition System — NH-91 Bypass, Package 3</title>
+<meta name="description" content="Track a land parcel through proposal, notification, award and possession on a live 3D survey map." />
+
+<!--
+  Single-file build. Everything -- data, projection math, terrain, camera rig,
+  HUD -- lives in this one document. Three.js is the only dependency, loaded
+  as a native ES module straight from a CDN, so this file runs by being
+  opened directly in a browser (file://) or served statically. No npm,
+  no bundler, no build step.
+
+  Structure of the module script below, top to bottom:
+    1. Seed data            the same 8-parcel GeoJSON as the Next.js build
+    2. Design tokens        palette, stage colours, formatters
+    3. Projection & terrain geo math, ported 1:1 from geo.ts / terrain.ts
+    4. Three.js scene       renderer, lights, terrain, corridor, parcels
+    5. Camera rig           orbital damped camera, identical maths to
+                            CameraRig.tsx (see the comment block there for
+                            why an orbit can't clip through the ground)
+    6. Interaction          raycasting, hover/select, keyboard
+    7. HUD                  plain DOM, imperative updates, no framework
+    8. Animate loop
+-->
+
+<style>
+  :root {
+    --cream: #fdfbf7;
+    --card: #ffffff;
+    --ink: #3e2723;
+    --ink-80: rgba(62, 39, 35, 0.8);
+    --ink-60: rgba(62, 39, 35, 0.6);
+    --ink-40: rgba(62, 39, 35, 0.4);
+    --latte: #d7ccc8;
+    --latte-soft: rgba(215, 204, 200, 0.62);
+
+    --glass-fill: linear-gradient(170deg, rgba(255,255,255,0.9), rgba(255,255,255,0.66));
+    --glass-blur: blur(22px) saturate(175%);
+    --glass-edge: inset 0 1px 0 rgba(255,255,255,0.95), inset 0 0 0 1px rgba(255,255,255,0.34);
+    --shadow-soft: 0 26px 52px -30px rgba(62,39,35,0.5), 0 3px 8px -4px rgba(62,39,35,0.14);
+
+    --r-lg: 18px;
+    --r-md: 12px;
+    --ease: cubic-bezier(.16,1,.3,1);
+
+    --font-ui: "Inter Tight","Inter",ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    --font-display: "Newsreader","Source Serif 4",Georgia,"Times New Roman",serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--cream);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+  }
+
+  #scene-root { position: fixed; inset: 0; }
+  #scene-canvas { position: absolute; inset: 0; display: block; }
+
+  .dof-frame {
+    position: absolute;
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(7px);
+    backdrop-filter: blur(7px);
+  }
+  .dof-top    { inset: 0 0 auto 0; height: 16%; -webkit-mask-image: linear-gradient(to bottom, #000 40%, transparent); mask-image: linear-gradient(to bottom, #000 40%, transparent); }
+  .dof-bottom { inset: auto 0 0 0; height: 16%; -webkit-mask-image: linear-gradient(to top, #000 40%, transparent); mask-image: linear-gradient(to top, #000 40%, transparent); }
+  .dof-left   { inset: 0 auto 0 0; width: 14%;  -webkit-mask-image: linear-gradient(to right, #000 40%, transparent); mask-image: linear-gradient(to right, #000 40%, transparent); }
+  .dof-right  { inset: 0 0 0 auto; width: 14%;  -webkit-mask-image: linear-gradient(to left, #000 40%, transparent); mask-image: linear-gradient(to left, #000 40%, transparent); }
+  .vignette {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 100% at 50% 45%, transparent 55%, rgba(62,39,35,0.16) 100%);
+  }
+
+  .parcel-label {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 10px;
+    border: 1px solid rgba(215,204,200,0.8);
+    border-radius: 999px;
+    background: rgba(253,251,247,0.78);
+    -webkit-backdrop-filter: blur(9px) saturate(150%);
+    backdrop-filter: blur(9px) saturate(150%);
+    box-shadow: 0 8px 18px -12px rgba(62,39,35,0.7);
+    font-size: 11px;
+    color: var(--ink);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 320ms var(--ease), transform 320ms var(--ease);
+    will-change: transform, opacity;
+  }
+  .parcel-label[data-visible="true"] { opacity: 1; }
+  .parcel-label[data-active="true"] { transform: translate(-50%, -130%); }
+  .parcel-label__dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(62,39,35,0.2); flex: none; }
+  .parcel-label__owner { display: inline-block; max-width: 0; overflow: hidden; opacity: 0; color: rgba(62,39,35,0.6); transition: max-width 380ms var(--ease), opacity 240ms ease; }
+  .parcel-label[data-active="true"] .parcel-label__owner { max-width: 190px; opacity: 1; }
+
+  .hud {
+    position: fixed; inset: 0; pointer-events: none; z-index: 2;
+    display: grid;
+    grid-template-columns: 268px 1fr 340px;
+    grid-template-rows: auto 1fr auto;
+    gap: 18px; padding: 18px;
+  }
+  .hud > * { pointer-events: auto; }
+
+  .panel {
+    background: var(--glass-fill);
+    -webkit-backdrop-filter: var(--glass-blur);
+    backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--latte-soft);
+    border-radius: var(--r-lg);
+    box-shadow: var(--glass-edge), var(--shadow-soft);
+  }
+  .panel[data-state="entering"] { animation: panel-in 560ms var(--ease) both; }
+  .panel[data-state="leaving"]  { animation: panel-out 220ms cubic-bezier(.4,0,1,1) both; pointer-events: none; }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translate3d(22px,10px,0) scale(.975); -webkit-backdrop-filter: blur(0) saturate(100%); backdrop-filter: blur(0) saturate(100%); }
+    to   { opacity: 1; transform: none; -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); }
+  }
+  @keyframes panel-out { to { opacity: 0; transform: translate3d(16px,4px,0) scale(.985); } }
+
+  .bar { grid-column: 1/-1; grid-row: 1; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 18px; animation: panel-in 620ms var(--ease) both; }
+  .bar__mark { display: flex; align-items: center; gap: 14px; min-width: 0; }
+  .bar__seal { flex: none; width: 38px; height: 38px; color: var(--ink); opacity: .9; }
+  .bar__title { margin: 0; font-family: var(--font-display); font-size: 19px; font-weight: 500; letter-spacing: -.012em; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar__sub { margin: 2px 0 0; font-size: 12px; color: var(--ink-60); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar__tools { display: flex; align-items: center; gap: 12px; }
+
+  .roles { position: relative; display: flex; padding: 3px; border: 1px solid var(--latte); border-radius: 999px; background: rgba(253,251,247,.7); }
+  .roles__thumb { position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px); border-radius: 999px; background: var(--ink); transition: transform 420ms var(--ease); }
+  .roles[data-role="public"] .roles__thumb { transform: translateX(100%); }
+  .roles__option { position: relative; z-index: 1; flex: 1; min-width: 116px; padding: 7px 14px; border: 0; border-radius: 999px; background: none; font: inherit; font-size: 12.5px; color: var(--ink-60); cursor: pointer; transition: color 300ms var(--ease); }
+  .roles__option[aria-pressed="true"] { color: var(--cream); }
+
+  .search { display: none; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid var(--latte); border-radius: 999px; background: rgba(253,251,247,.7); transition: border-color 240ms var(--ease), box-shadow 240ms var(--ease); }
+  .search[data-shown="true"] { display: flex; }
+  .search:focus-within { border-color: var(--ink-40); box-shadow: 0 0 0 3px rgba(62,39,35,.07); }
+  .search__label { flex: none; font-size: 11.5px; color: var(--ink-40); }
+  .search input { width: 176px; border: 0; background: none; font: inherit; font-size: 13px; color: var(--ink); outline: none; }
+  .search input::placeholder { color: var(--ink-40); }
+
+  .rail { grid-column: 1; grid-row: 2; align-self: start; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+  .kpi { padding: 14px 16px 15px; animation: panel-in 620ms var(--ease) both; animation-delay: calc(var(--i) * 70ms + 120ms); }
+  .kpi__label { margin: 0; font-size: 11.5px; color: var(--ink-60); }
+  .kpi__value { margin: 5px 0 0; font-size: 27px; font-weight: 600; letter-spacing: -.02em; line-height: 1.05; }
+  .kpi__value span { margin-left: 3px; font-size: 14px; font-weight: 500; color: var(--ink-60); }
+  .kpi__meter { margin-top: 10px; height: 3px; border-radius: 999px; background: rgba(62,39,35,.1); overflow: hidden; }
+  .kpi__meter i { display: block; height: 100%; border-radius: 999px; background: var(--ink); transition: width 700ms var(--ease); }
+  .kpi__foot { margin: 8px 0 0; font-size: 11.5px; color: var(--ink-40); }
+
+  .legend { grid-column: 1; grid-row: 3; align-self: end; padding: 12px 14px; animation: panel-in 620ms var(--ease) both; animation-delay: 420ms; }
+  .legend__head { margin: 0 0 9px; font-size: 11.5px; color: var(--ink-60); }
+  .legend__list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .legend__row { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
+  .legend__swatch { flex: none; width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(62,39,35,.18); }
+  .legend__label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .legend__count { color: var(--ink-40); }
+
+  .stage { grid-column: 2; grid-row: 3; justify-self: center; align-self: end; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; }
+  .stage > * { pointer-events: auto; }
+  .pill { display: inline-flex; align-items: center; gap: 9px; padding: 9px 16px; border: 1px solid var(--latte-soft); border-radius: 999px; background: var(--glass-fill); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); box-shadow: var(--glass-edge), var(--shadow-soft); font: inherit; font-size: 13px; color: var(--ink); }
+  .pill[data-state="entering"] { animation: pill-in 520ms var(--ease) both; }
+  .pill[data-state="leaving"] { animation: panel-out 200ms ease both; }
+  @keyframes pill-in { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+  button.pill { cursor: pointer; transition: transform 220ms var(--ease), box-shadow 220ms var(--ease); }
+  button.pill:hover { transform: translateY(-1px); box-shadow: var(--glass-edge), 0 30px 56px -28px rgba(62,39,35,.55); }
+  .pill kbd { padding: 2px 6px; border: 1px solid var(--latte); border-radius: 5px; background: rgba(255,255,255,.75); font: inherit; font-size: 10.5px; color: var(--ink-60); }
+  .pill--notice { background: linear-gradient(170deg, rgba(62,39,35,.94), rgba(62,39,35,.86)); border-color: rgba(62,39,35,.9); color: var(--cream); }
+
+  .record { grid-column: 3; grid-row: 2/4; align-self: start; display: flex; flex-direction: column; max-height: 100%; overflow: hidden; }
+  .record__head { padding: 16px 18px 14px; border-bottom: 1px solid var(--latte-soft); }
+  .record__eyebrow { margin: 0; font-size: 11.5px; color: var(--ink-40); }
+  .record__no { margin: 3px 0 0; font-family: var(--font-display); font-size: 26px; font-weight: 500; letter-spacing: -.015em; line-height: 1.08; }
+  .record__where { margin: 4px 0 12px; font-size: 12.5px; color: var(--ink-60); }
+  .chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px 5px 8px; border-radius: 999px; background: rgba(62,39,35,.055); font-size: 12px; }
+  .chip__dot { width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(62,39,35,.2); }
+  .track { display: flex; gap: 4px; padding: 14px 18px 4px; }
+  .track__step { flex: 1; height: 3px; border-radius: 999px; background: rgba(62,39,35,.1); overflow: hidden; }
+  .track__step i { display: block; height: 100%; width: 0; border-radius: 999px; background: var(--ink); transition: width 520ms var(--ease); }
+  .track__step[data-done="true"] i { width: 100%; }
+  .track__caption { margin: 0; padding: 8px 18px 0; font-size: 11.5px; color: var(--ink-40); }
+  .record__body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 18px 16px; }
+  .row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid rgba(215,204,200,.4); }
+  .row:last-child { border-bottom: 0; }
+  .row__key { flex: none; font-size: 12.5px; color: var(--ink-60); }
+  .row__value { text-align: right; font-size: 13.5px; overflow-wrap: anywhere; }
+  .row__value--lead { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .row__value--code { letter-spacing: .04em; font-size: 12.5px; }
+  .record__foot { display: flex; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--latte-soft); }
+  .btn { flex: 1; padding: 11px 14px; border: 1px solid transparent; border-radius: var(--r-md); font: inherit; font-size: 13px; cursor: pointer; transition: transform 200ms var(--ease), background 200ms var(--ease); }
+  .btn:active { transform: scale(.985); }
+  .btn--primary { background: var(--ink); color: var(--cream); box-shadow: 0 12px 22px -14px rgba(62,39,35,.9); }
+  .btn--primary:hover { background: #2f1d1a; }
+  .btn--primary:disabled { background: rgba(62,39,35,.14); color: var(--ink-40); box-shadow: none; cursor: default; }
+  .btn--ghost { flex: 0 0 auto; border-color: var(--latte); background: rgba(255,255,255,.6); color: var(--ink-80); }
+  .btn--ghost:hover { background: #fff; }
+  .note { margin: 0; padding: 10px 18px 14px; font-size: 12px; color: var(--ink-60); border-top: 1px solid var(--latte-soft); }
+
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 6px; }
+
+  @media (max-width: 1080px) {
+    .hud { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr auto; gap: 12px; padding: 12px; }
+    .bar { flex-wrap: wrap; row-gap: 10px; }
+    .rail { grid-row: 2; flex-direction: row; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+    .rail::-webkit-scrollbar { display: none; }
+    .kpi { flex: 0 0 176px; }
+    .legend { display: none; }
+    .stage { grid-column: 1; grid-row: 3; }
+    .record { grid-column: 1; grid-row: 4; align-self: end; max-height: 58vh; }
+  }
+  @media (max-width: 620px) {
+    .bar__sub { display: none; }
+    .search input { width: 120px; }
+    .roles__option { min-width: 92px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; animation-delay: 0ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+</head>
+<body>
+
+<div id="scene-root">
+  <canvas id="scene-canvas"></canvas>
+  <div id="labels-layer"></div>
+  <div class="dof-frame dof-top"></div>
+  <div class="dof-frame dof-bottom"></div>
+  <div class="dof-frame dof-left"></div>
+  <div class="dof-frame dof-right"></div>
+  <div class="vignette"></div>
+</div>
+
+<div class="hud">
+  <header class="panel bar">
+    <div class="bar__mark">
+      <svg class="bar__seal" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="18.4" fill="none" stroke="currentColor" stroke-width="1.1" opacity="0.34"/>
+        <g stroke="currentColor" stroke-width="0.9" opacity="0.16">
+          <path d="M20 2.5V37.5"/><path d="M4.6 14.6h30.8"/><path d="M4.6 25.4h30.8"/>
+        </g>
+        <path d="M12.4 14.1 21.9 11.6 28.9 16.3 27.2 26.1 15.1 28.1Z" fill="currentColor" opacity="0.88"/>
+      </svg>
+      <div>
+        <h1 class="bar__title">National Land Acquisition System</h1>
+        <p class="bar__sub">NH-91 Bypass, Package 3 &middot; Gautam Buddh Nagar, Uttar Pradesh</p>
+      </div>
+    </div>
+    <div class="bar__tools">
+      <form class="search" id="search-form" role="search">
+        <label for="survey-search" class="search__label">Survey no.</label>
+        <input id="survey-search" placeholder="e.g. 121/7" autocomplete="off" />
+      </form>
+      <div class="roles" id="roles" data-role="collector">
+        <span class="roles__thumb" aria-hidden="true"></span>
+        <button type="button" class="roles__option" data-role-btn="collector" aria-pressed="true">District Collector</button>
+        <button type="button" class="roles__option" data-role-btn="public" aria-pressed="false">Landowner</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="rail" id="kpi-rail"></div>
+
+  <section class="panel legend" id="legend" aria-label="Stage legend">
+    <p class="legend__head">Acquisition stage, by colour on the map</p>
+    <ul class="legend__list" id="legend-list"></ul>
+  </section>
+
+  <div class="stage">
+    <div id="notice-slot"></div>
+    <div id="hint-slot"></div>
+    <div id="exit-slot"></div>
+  </div>
+
+  <aside class="panel record" id="record" style="display:none">
+    <header class="record__head">
+      <p class="record__eyebrow">Survey number</p>
+      <h2 class="record__no" id="rec-no"></h2>
+      <p class="record__where" id="rec-where"></p>
+      <span class="chip"><span class="chip__dot" id="rec-chip-dot"></span><span id="rec-chip-label"></span></span>
+    </header>
+    <div class="track" id="rec-track" role="img"></div>
+    <p class="track__caption" id="rec-hint"></p>
+    <div class="record__body" id="rec-rows"></div>
+    <div id="rec-footer"></div>
+  </aside>
+</div>
+
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.169.0/build/three.module.js";
+
+/* =========================================================================
+   1. SEED DATA
+   ========================================================================= */
+const SCENE_ORIGIN = [77.102, 28.7015];
+const FEATURES = [{"type":"Feature","id":"COR-NH91-A","properties":{"kind":"corridor","name":"NH-91 Bypass \u00b7 Package 3","widthM":30},"geometry":{"type":"Polygon","coordinates":[[[77.102247,28.69899],[77.102551,28.699028],[77.101753,28.70401],[77.101449,28.703972],[77.102247,28.69899]]]},"_centroid_m":[0,0]},{"type":"Feature","id":"P-101","properties":{"kind":"parcel","parcelId":"P-101","surveyNo":"118/2","ulpin":"UP12-0345-1180-2A","owner":"Ramesh Chand Yadav","village":"Bisrakh Jalalpur","landUse":"Irrigated cropland","areaSqm":9885,"families":4,"stage":"possession_taken","ratePerSqm":3450,"compensation":34104000,"notifiedOn":"2025-11-14","side":"west"},"geometry":{"type":"Polygon","coordinates":[[[77.10103,28.699463],[77.102052,28.69956],[77.101907,28.700402],[77.10079,28.700283],[77.10103,28.699463]]]},"_centroid_m":[-54.22,-174.36]},{"type":"Feature","id":"P-102","properties":{"kind":"parcel","parcelId":"P-102","surveyNo":"118/5","ulpin":"UP12-0345-1180-5B","owner":"Sunita Devi","village":"Bisrakh Jalalpur","landUse":"Irrigated cropland","areaSqm":8378,"families":3,"stage":"award_declared","ratePerSqm":3450,"compensation":28903000,"notifiedOn":"2026-01-09","side":"east"},"geometry":{"type":"Polygon","coordinates":[[[77.10262,28.699648],[77.103653,28.69985],[77.103473,28.700542],[77.102465,28.700411],[77.10262,28.699648]]]},"_centroid_m":[102.13,-154.83]},{"type":"Feature","id":"P-103","properties":{"kind":"parcel","parcelId":"P-103","surveyNo":"121/1","ulpin":"UP12-0345-1210-1A","owner":"Mohd. Irfan Qureshi","village":"Chhapraula","landUse":"Orchard","areaSqm":8745,"families":6,"stage":"notification_issued","ratePerSqm":2980,"compensation":26060000,"notifiedOn":"2026-02-27","side":"west"},"geometry":{"type":"Polygon","coordinates":[[[77.100784,28.700494],[77.10183,28.700624],[77.101785,28.701328],[77.100664,28.70126],[77.100784,28.700494]]]},"_centroid_m":[-72.55,-63.53]},{"type":"Feature","id":"P-104","properties":{"kind":"parcel","parcelId":"P-104","surveyNo":"121/7","ulpin":"UP12-0345-1210-7C","owner":"Kavita Sharma","village":"Chhapraula","landUse":"Rain-fed cropland","areaSqm":9150,"families":2,"stage":"notification_issued","ratePerSqm":2980,"compensation":27268000,"notifiedOn":"2026-02-27","side":"east"},"geometry":{"type":"Polygon","coordinates":[[[77.102351,28.700644],[77.103426,28.700749],[77.103373,28.701592],[77.102343,28.701393],[77.102351,28.700644]]]},"_centroid_m":[86.33,-45.24]},{"type":"Feature","id":"P-105","properties":{"kind":"parcel","parcelId":"P-105","surveyNo":"126/3","ulpin":"UP12-0345-1260-3A","owner":"Gram Sabha Dadri","village":"Dadri","landUse":"Common village land","areaSqm":9046,"families":0,"stage":"proposal_submitted","ratePerSqm":2640,"compensation":23881000,"notifiedOn":null,"side":"west"},"geometry":{"type":"Polygon","coordinates":[[[77.10069,28.70148],[77.101719,28.701618],[77.101627,28.702405],[77.100526,28.702217],[77.10069,28.70148]]]},"_centroid_m":[-83.58,48.45]},{"type":"Feature","id":"P-106","properties":{"kind":"parcel","parcelId":"P-106","surveyNo":"126/9","ulpin":"UP12-0345-1260-9D","owner":"Harpal Singh Nagar","village":"Dadri","landUse":"Irrigated cropland","areaSqm":9567,"families":5,"stage":"award_declared","ratePerSqm":3720,"compensation":35588000,"notifiedOn":"2026-01-09","side":"east"},"geometry":{"type":"Polygon","coordinates":[[[77.102193,28.701614],[77.103285,28.701725],[77.10314,28.70256],[77.102159,28.702459],[77.102193,28.701614]]]},"_centroid_m":[67.87,64.76]},{"type":"Feature","id":"P-107","properties":{"kind":"parcel","parcelId":"P-107","surveyNo":"131/4","ulpin":"UP12-0345-1310-4B","owner":"Anita Balyan","village":"Rithori","landUse":"Homestead + cropland","areaSqm":9487,"families":7,"stage":"possession_taken","ratePerSqm":3810,"compensation":36145000,"notifiedOn":"2025-10-02","side":"west"},"geometry":{"type":"Polygon","coordinates":[[[77.100529,28.702394],[77.101553,28.702552],[77.101483,28.703356],[77.100403,28.70322],[77.100529,28.702394]]]},"_centroid_m":[-98.79,154.01]},{"type":"Feature","id":"P-108","properties":{"kind":"parcel","parcelId":"P-108","surveyNo":"131/8","ulpin":"UP12-0345-1310-8A","owner":"Vikram Tyagi","village":"Rithori","landUse":"Rain-fed cropland","areaSqm":8830,"families":3,"stage":"proposal_submitted","ratePerSqm":2640,"compensation":23312000,"notifiedOn":null,"side":"east"},"geometry":{"type":"Polygon","coordinates":[[[77.102084,28.702621],[77.103171,28.702743],[77.102978,28.70349],[77.101916,28.70334],[77.102084,28.702621]]]},"_centroid_m":[52.83,172.32]}];
+
+const STAGE_ORDER = ["proposal_submitted", "notification_issued", "award_declared", "possession_taken"];
+
+const STAGE_STYLE = {
+  proposal_submitted:   { label: "Proposal submitted",   color: "#BCADA0", glow: "#8D7A6C", hint: "Alignment drawn, owners not yet mapped." },
+  notification_issued:  { label: "Notification issued",  color: "#D9A441", glow: "#B9822A", hint: "Section 11 published, objections open." },
+  award_declared:       { label: "Award declared",       color: "#C2703E", glow: "#9E5326", hint: "Compensation assessed, payment pending." },
+  possession_taken:     { label: "Possession taken",     color: "#6E8C63", glow: "#4F6B47", hint: "Paid in full and handed to the project." },
+};
+
+const PALETTE = {
+  canvas: "#FDFBF7", ink: "#3E2723",
+  grassLight: "#9FAE86", grassDark: "#7E9070", asphalt: "#6E635C",
+};
+
+function nextStage(stage) {
+  const i = STAGE_ORDER.indexOf(stage);
+  return i < STAGE_ORDER.length - 1 ? STAGE_ORDER[i + 1] : null;
+}
+
+/* =========================================================================
+   2. FORMATTERS
+   ========================================================================= */
+const inr = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
+function formatRupees(v) {
+  if (v >= 1e7) return "\u20b9" + (v / 1e7).toFixed(2) + " Cr";
+  if (v >= 1e5) return "\u20b9" + (v / 1e5).toFixed(2) + " L";
+  return inr.format(v);
+}
+function formatRupeesExact(v) { return inr.format(v); }
+function formatArea(sqm) { return (sqm / 10000).toFixed(2) + " ha"; }
+function formatDate(iso) {
+  if (!iso) return "Not issued";
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/* =========================================================================
+   3. PROJECTION -- WGS84 -> scene units
+   ========================================================================= */
+const UNITS_PER_METRE = 1 / 20;
+const PARCEL_DEPTH = 0.22;
+const EARTH_M_PER_DEG_LAT = 111320;
+
+function project(lng, lat, origin) {
+  origin = origin || SCENE_ORIGIN;
+  const mPerDegLng = EARTH_M_PER_DEG_LAT * Math.cos((origin[1] * Math.PI) / 180);
+  const east = (lng - origin[0]) * mPerDegLng;
+  const north = (lat - origin[1]) * EARTH_M_PER_DEG_LAT;
+  return new THREE.Vector2(east * UNITS_PER_METRE, -north * UNITS_PER_METRE);
+}
+
+function signedArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a / 2;
+}
+
+function centroid(pts) {
+  const a = signedArea(pts);
+  if (Math.abs(a) < 1e-9) {
+    const avg = pts.reduce((s, p) => s.add(p), new THREE.Vector2());
+    return avg.divideScalar(pts.length);
+  }
+  let cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    const cross = p.x * q.y - q.x * p.y;
+    cx += (p.x + q.x) * cross; cy += (p.y + q.y) * cross;
+  }
+  return new THREE.Vector2(cx / (6 * a), cy / (6 * a));
+}
+
+function ringToPoints(ring) {
+  const pts = ring.map((c) => project(c[0], c[1]));
+  const first = pts[0], last = pts[pts.length - 1];
+  if (first.distanceTo(last) < 1e-6) pts.pop();
+  return pts;
+}
+
+function principalAxis(pts, c) {
+  let sxx = 0, sxy = 0, syy = 0;
+  for (const p of pts) {
+    const dx = p.x - c.x, dy = p.y - c.y;
+    sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+  }
+  const angle = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  const axis = new THREE.Vector2(Math.cos(angle), Math.sin(angle));
+  let halfLength = 0;
+  for (const p of pts) halfLength = Math.max(halfLength, Math.abs((p.x - c.x) * axis.x + (p.y - c.y) * axis.y));
+  return { axis: axis, halfLength: halfLength };
+}
+
+function shapeFromPoints(pts, c) {
+  return new THREE.Shape(pts.map((p) => new THREE.Vector2(p.x - c.x, -(p.y - c.y))));
+}
+
+function extrude(pts, c, depth) {
+  const geo = new THREE.ExtrudeGeometry(shapeFromPoints(pts, c), {
+    depth: depth, bevelEnabled: true, bevelThickness: 0.012, bevelSize: 0.012, bevelSegments: 2,
+  });
+  geo.rotateX(-Math.PI / 2);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function projectScene() {
+  const parcels = [];
+  let corridor = null;
+  let extent = 0;
+
+  for (const f of FEATURES) {
+    const pts = ringToPoints(f.geometry.coordinates[0]);
+    const c = centroid(pts);
+    const center = new THREE.Vector3(c.x, 0, c.y);
+
+    if (f.properties.kind === "parcel") {
+      const radius = Math.max.apply(null, pts.map((p) => p.distanceTo(c)));
+      parcels.push({ id: f.id, props: f.properties, center: center, geometry: extrude(pts, c, PARCEL_DEPTH), radius: radius });
+      extent = Math.max(extent, center.length() + radius);
+    } else {
+      const axisInfo = principalAxis(pts, c);
+      const shapeGeo = new THREE.ShapeGeometry(shapeFromPoints(pts, c));
+      shapeGeo.rotateX(-Math.PI / 2);
+      corridor = { id: f.id, props: f.properties, center: center, geometry: shapeGeo, axis: axisInfo.axis, halfLength: axisInfo.halfLength };
+    }
+  }
+  return { parcels: parcels, corridor: corridor, extent: extent };
+}
+
+/* =========================================================================
+   4. TERRAIN HEIGHT FIELD
+   ========================================================================= */
+const FLAT_X = 9, FLAT_Z = 15, FALLOFF = 1.85, AMPLITUDE = 0.85;
+const TERRAIN_SIZE = 96, TERRAIN_SEGMENTS = 168;
+
+function hash(x, y) { const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453; return n - Math.floor(n); }
+function valueNoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y), xf = x - xi, yf = y - yi;
+  const u = xf * xf * xf * (xf * (xf * 6 - 15) + 10);
+  const v = yf * yf * yf * (yf * (yf * 6 - 15) + 10);
+  const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1);
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+}
+function fbm(x, y, octaves) {
+  octaves = octaves || 4;
+  let value = 0, amp = 0.5, freq = 1;
+  for (let i = 0; i < octaves; i++) { value += amp * valueNoise(x * freq, y * freq); freq *= 2.07; amp *= 0.5; }
+  return value;
+}
+function flatnessMask(x, z) {
+  const d = Math.max(Math.abs(x) / FLAT_X, Math.abs(z) / FLAT_Z);
+  return THREE.MathUtils.smoothstep(d, 1, FALLOFF);
+}
+function terrainHeight(x, z) { return (fbm(x * 0.055, z * 0.055) - 0.5) * 2 * AMPLITUDE * flatnessMask(x, z); }
+const lightC = new THREE.Color(PALETTE.grassLight), darkC = new THREE.Color(PALETTE.grassDark);
+function terrainTint(x, z, out) {
+  const patch = fbm(x * 0.19 + 40, z * 0.19 - 17, 3);
+  return out.copy(darkC).lerp(lightC, THREE.MathUtils.clamp(patch * 1.35, 0, 1));
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/* =========================================================================
+   5. STATE
+   ========================================================================= */
+const projected = projectScene();
+const baseParcels = projected.parcels;
+const corridor = projected.corridor;
+const extent = projected.extent;
+
+const state = {
+  selectedId: null,
+  hoveredId: null,
+  role: "collector",
+  overrides: Object.create(null),
+  hasExplored: false,
+  reducedMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+};
+
+function stageOf(parcel) { return state.overrides[parcel.id] || parcel.props.stage; }
+function selectedParcel() { return state.selectedId ? baseParcels.find((p) => p.id === state.selectedId) : null; }
+
+function computeKpis() {
+  let totalAreaSqm = 0, possessedAreaSqm = 0, disbursed = 0, committed = 0;
+  let familiesAffected = 0, familiesResettled = 0, pendingApprovals = 0;
+  for (const p of baseParcels) {
+    const stage = stageOf(p);
+    totalAreaSqm += p.props.areaSqm;
+    familiesAffected += p.props.families;
+    if (stage === "possession_taken") { possessedAreaSqm += p.props.areaSqm; disbursed += p.props.compensation; familiesResettled += p.props.families; }
+    else if (stage === "award_declared") { committed += p.props.compensation; }
+    else { pendingApprovals += 1; }
+  }
+  return { totalAreaSqm: totalAreaSqm, possessedAreaSqm: possessedAreaSqm, disbursed: disbursed, committed: committed,
+    familiesAffected: familiesAffected, familiesResettled: familiesResettled, pendingApprovals: pendingApprovals,
+    progress: totalAreaSqm ? possessedAreaSqm / totalAreaSqm : 0 };
+}
+
+/* =========================================================================
+   6. THREE.JS SCENE
+   ========================================================================= */
+const canvas = document.getElementById("scene-canvas");
+const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.22;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(PALETTE.canvas);
+scene.fog = new THREE.Fog(PALETTE.canvas, 46, 96);
+
+const camera = new THREE.PerspectiveCamera(34, window.innerWidth / window.innerHeight, 0.5, 200);
+camera.position.set(0, 44, 26);
+
+scene.add(new THREE.HemisphereLight("#EAF1FF", "#8A7F6A", 0.55));
+scene.add(new THREE.AmbientLight("#FFF6EA", 0.35));
+const sun = new THREE.DirectionalLight("#FFF4E4", 2.2);
+sun.position.set(16, 24, 11);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0006;
+sun.shadow.normalBias = 0.022;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 90;
+sun.shadow.camera.left = -26; sun.shadow.camera.right = 26;
+sun.shadow.camera.top = 26; sun.shadow.camera.bottom = -26;
+sun.shadow.camera.updateProjectionMatrix();
+scene.add(sun);
+
+function buildTerrain() {
+  const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, TERRAIN_SEGMENTS, TERRAIN_SEGMENTS);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const tint = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    pos.setY(i, terrainHeight(x, z));
+    terrainTint(x, z, tint);
+    colors[i * 3] = tint.r; colors[i * 3 + 1] = tint.g; colors[i * 3 + 2] = tint.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }));
+  mesh.receiveShadow = true;
+  return mesh;
+}
+scene.add(buildTerrain());
+
+function buildCorridor(cor) {
+  const group = new THREE.Group();
+  const road = new THREE.Mesh(cor.geometry, new THREE.MeshStandardMaterial({ color: PALETTE.asphalt, roughness: 0.92, metalness: 0.04 }));
+  road.position.set(cor.center.x, 0.02, cor.center.z);
+  road.receiveShadow = true;
+  group.add(road);
+
+  const DASH_LENGTH = 0.5, DASH_GAP = 0.42, DASH_WIDTH = 0.05;
+  const count = Math.max(1, Math.floor((cor.halfLength * 2) / (DASH_LENGTH + DASH_GAP)));
+  const dashGeo = new THREE.PlaneGeometry(DASH_WIDTH, DASH_LENGTH);
+  const dashMat = new THREE.MeshBasicMaterial({ color: "#E9E2D8", toneMapped: false });
+  const dashes = new THREE.InstancedMesh(dashGeo, dashMat, count);
+  const yaw = Math.atan2(cor.axis.x, -cor.axis.y);
+  const dummy = new THREE.Object3D();
+  const step = DASH_LENGTH + DASH_GAP;
+  const start = -((count - 1) * step) / 2;
+  for (let i = 0; i < count; i++) {
+    const t = start + i * step;
+    dummy.position.set(cor.center.x + cor.axis.x * t, 0.035, cor.center.z + cor.axis.y * t);
+    dummy.rotation.set(-Math.PI / 2, 0, -yaw);
+    dummy.updateMatrix();
+    dashes.setMatrixAt(i, dummy.matrix);
+  }
+  group.add(dashes);
+  return group;
+}
+if (corridor) scene.add(buildCorridor(corridor));
+
+function buildScatter() {
+  const GROVES = 46, BLOBS = 3, COUNT = GROVES * BLOBS;
+  const rand = mulberry32(0x5eed);
+  const half = TERRAIN_SIZE / 2 - 4;
+  const placements = [];
+  let guard = 0;
+  while (placements.length < COUNT && guard < 12000) {
+    guard++;
+    const gx = (rand() * 2 - 1) * half, gz = (rand() * 2 - 1) * half;
+    if (flatnessMask(gx, gz) < 0.55) continue;
+    const scale = 0.34 + rand() * 0.3;
+    for (let b = 0; b < BLOBS; b++) {
+      const ox = gx + (rand() - 0.5) * scale * 2.6, oz = gz + (rand() - 0.5) * scale * 2.6;
+      const s = scale * (0.65 + rand() * 0.6);
+      placements.push({ x: ox, z: oz, y: terrainHeight(ox, oz) + s * 0.55, s: s, tint: rand() });
+    }
+  }
+  const geo = new THREE.IcosahedronGeometry(1, 0);
+  const mat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, flatShading: true });
+  const mesh = new THREE.InstancedMesh(geo, mat, placements.length);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color(), deep = new THREE.Color("#5C7350"), pale = new THREE.Color("#86A06E");
+  placements.forEach((p, i) => {
+    dummy.position.set(p.x, p.y, p.z);
+    dummy.rotation.set(0, p.tint * Math.PI * 2, p.tint * 0.4 - 0.2);
+    dummy.scale.set(p.s, p.s * 0.82, p.s);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    mesh.setColorAt(i, color.copy(deep).lerp(pale, p.tint));
+  });
+  return mesh;
+}
+scene.add(buildScatter());
+
+const LIFT = { selected: 0.34, hovered: 0.15, rest: 0 };
+const GLOW = { selected: 0.5, hovered: 0.28, rest: 0.05 };
+
+const parcelMeshes = [];
+const parcelRuntime = new Map();
+
+function buildParcel(parcel) {
+  const style = STAGE_STYLE[stageOf(parcel)];
+  const material = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(style.color), emissive: new THREE.Color(style.glow),
+    emissiveIntensity: GLOW.rest, roughness: 0.66, metalness: 0.02,
+  });
+
+  const mesh = new THREE.Mesh(parcel.geometry, material);
+  mesh.castShadow = true; mesh.receiveShadow = true;
+  mesh.userData.parcelId = parcel.id;
+
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(parcel.geometry, 18),
+    new THREE.LineBasicMaterial({ color: PALETTE.ink, transparent: true, opacity: 0.28 }),
+  );
+
+  const group = new THREE.Group();
+  group.position.set(parcel.center.x, 0, parcel.center.z);
+  const lift = new THREE.Group();
+  lift.add(mesh); lift.add(edges);
+  group.add(lift);
+
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(parcel.radius * 1.04, parcel.radius * 1.12, 72),
+    new THREE.MeshBasicMaterial({ color: style.glow, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  ring.position.set(0, 0.012, 0);
+  ring.rotation.x = -Math.PI / 2;
+  ring.scale.setScalar(0.82);
+  group.add(ring);
+
+  scene.add(group);
+  parcelMeshes.push(mesh);
+
+  const label = document.createElement("div");
+  label.className = "parcel-label";
+  label.innerHTML = '<span class="parcel-label__dot"></span><span class="parcel-label__no"></span><span class="parcel-label__owner"></span>';
+  document.getElementById("labels-layer").appendChild(label);
+
+  parcelRuntime.set(parcel.id, {
+    parcel: parcel, group: group, lift: lift, mesh: mesh, edges: edges, material: material, ring: ring, label: label,
+    liftY: 0, scale: 1, glow: GLOW.rest,
+  });
+}
+baseParcels.forEach(buildParcel);
+
+function refreshParcelLabel(rt) {
+  const stage = stageOf(rt.parcel);
+  const style = STAGE_STYLE[stage];
+  rt.label.querySelector(".parcel-label__dot").style.background = style.color;
+  rt.label.querySelector(".parcel-label__no").textContent = rt.parcel.props.surveyNo;
+  rt.label.querySelector(".parcel-label__owner").textContent = rt.parcel.props.owner;
+}
+parcelRuntime.forEach(refreshParcelLabel);
+
+/* =========================================================================
+   7. CAMERA RIG
+   ========================================================================= */
+const PHI_MIN = 0.06, PHI_MAX = 1.14;
+const OVERVIEW = { phi: 0.32, theta: 1.3, fov: 34, margin: 1.3 };
+const FOCUS = { phi: 0.82, fov: 30, margin: 1.34, thetaSkew: 0.28 };
+const LAMBDA = { target: 3.1, radius: 2.6, angle: 2.9, fov: 3.4 };
+
+function damp(a, b, lambda, dt) { return THREE.MathUtils.damp(a, b, lambda, dt); }
+function dampAngle(a, b, lambda, dt) {
+  const diff = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  return a + diff * (1 - Math.exp(-lambda * dt));
+}
+
+let bounds = { hx: 1, hz: 1 };
+for (const p of baseParcels) {
+  bounds.hx = Math.max(bounds.hx, Math.abs(p.center.x) + p.radius);
+  bounds.hz = Math.max(bounds.hz, Math.abs(p.center.z) + p.radius);
+}
+
+function fitRadius(hx, hz, theta, phi, fov, aspect, margin) {
+  const c = Math.abs(Math.cos(theta)), s = Math.abs(Math.sin(theta));
+  const halfAcross = hx * c + hz * s;
+  const halfUp = (hx * s + hz * c) * Math.cos(phi);
+  const tanV = Math.tan((fov * Math.PI) / 360);
+  const tanH = tanV * aspect;
+  return Math.max((halfUp * margin) / tanV, (halfAcross * margin) / tanH);
+}
+
+const rig = {
+  goal: { target: new THREE.Vector3(), radius: 34, phi: OVERVIEW.phi, theta: OVERVIEW.theta, fov: OVERVIEW.fov },
+  current: { target: new THREE.Vector3(), radius: 62, phi: 0.1, theta: OVERVIEW.theta, fov: OVERVIEW.fov + 7 },
+  parallax: { theta: 0, phi: 0 },
+  pan: { x: 0, y: 0 },
+};
+const focusPoint = new THREE.Vector3();
+
+if (state.reducedMotion) {
+  rig.current.target.copy(rig.goal.target);
+  rig.current.radius = rig.goal.radius;
+  rig.current.phi = rig.goal.phi;
+  rig.current.fov = rig.goal.fov;
+}
+
+const pointer = { x: 0, y: 0 };
+window.addEventListener("pointermove", (e) => {
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = (e.clientY / window.innerHeight) * 2 - 1;
+});
+
+const scratch = { offset: new THREE.Vector3(), shift: new THREE.Vector3() };
+
+function updateCamera(dt) {
+  const aspect = window.innerWidth / Math.max(window.innerHeight, 1);
+  const g = rig.goal, c = rig.current;
+  const sel = selectedParcel();
+
+  if (sel) {
+    g.target.set(sel.center.x, 0.35, sel.center.z);
+    g.phi = FOCUS.phi; g.fov = FOCUS.fov;
+    g.theta = Math.atan2(sel.center.x, sel.center.z) + FOCUS.thetaSkew;
+    g.radius = fitRadius(sel.radius, sel.radius, 0, FOCUS.phi, FOCUS.fov, aspect, FOCUS.margin);
+  } else {
+    g.target.set(0, 0, 0);
+    g.phi = OVERVIEW.phi; g.theta = OVERVIEW.theta; g.fov = OVERVIEW.fov;
+    g.radius = fitRadius(bounds.hx, bounds.hz, OVERVIEW.theta, OVERVIEW.phi, OVERVIEW.fov, aspect, OVERVIEW.margin);
+  }
+
+  const strength = sel ? 0.35 : 1;
+  const px = state.reducedMotion ? 0 : pointer.x, py = state.reducedMotion ? 0 : pointer.y;
+  rig.parallax.theta = damp(rig.parallax.theta, px * 0.11 * strength, 2.2, dt);
+  rig.parallax.phi = damp(rig.parallax.phi, -py * 0.05 * strength, 2.2, dt);
+
+  const boost = state.reducedMotion ? 40 : 1;
+  c.target.x = damp(c.target.x, g.target.x, LAMBDA.target * boost, dt);
+  c.target.y = damp(c.target.y, g.target.y, LAMBDA.target * boost, dt);
+  c.target.z = damp(c.target.z, g.target.z, LAMBDA.target * boost, dt);
+  c.radius = damp(c.radius, g.radius, LAMBDA.radius * boost, dt);
+  c.phi = damp(c.phi, g.phi, LAMBDA.angle * boost, dt);
+  c.theta = dampAngle(c.theta, g.theta, LAMBDA.angle * boost, dt);
+  c.fov = damp(c.fov, g.fov, LAMBDA.fov * boost, dt);
+
+  const phi = THREE.MathUtils.clamp(c.phi + rig.parallax.phi, PHI_MIN, PHI_MAX);
+  const theta = c.theta + rig.parallax.theta;
+  const sinPhi = Math.sin(phi);
+  scratch.offset.set(sinPhi * Math.sin(theta), Math.cos(phi), sinPhi * Math.cos(theta));
+
+  camera.position.copy(c.target).addScaledVector(scratch.offset, c.radius);
+  camera.position.y = Math.max(camera.position.y, 1.2);
+  camera.lookAt(c.target);
+
+  if (Math.abs(camera.fov - c.fov) > 1e-4) { camera.fov = c.fov; camera.updateProjectionMatrix(); }
+
+  const wantX = sel && window.innerWidth >= 1080 ? 0.24 : 0;
+  const wantY = sel ? 0 : 0.05;
+  rig.pan.x = damp(rig.pan.x, wantX, 2.6, dt);
+  rig.pan.y = damp(rig.pan.y, wantY, 2.6, dt);
+  const halfHeight = c.radius * Math.tan((c.fov * Math.PI) / 360);
+  scratch.shift.set(rig.pan.x * halfHeight * aspect, rig.pan.y * halfHeight, 0).applyQuaternion(camera.quaternion);
+  camera.position.add(scratch.shift);
+
+  focusPoint.copy(c.target);
+}
+
+/* =========================================================================
+   8. INTERACTION
+   ========================================================================= */
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+
+function pickAt(clientX, clientY) {
+  ndc.x = (clientX / window.innerWidth) * 2 - 1;
+  ndc.y = -(clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(parcelMeshes, false);
+  return hits.length ? hits[0].object.userData.parcelId : null;
+}
+
+canvas.addEventListener("pointermove", (e) => {
+  const id = pickAt(e.clientX, e.clientY);
+  if (id !== state.hoveredId) { state.hoveredId = id; canvas.style.cursor = id ? "pointer" : ""; }
+});
+
+canvas.addEventListener("click", (e) => {
+  const id = pickAt(e.clientX, e.clientY);
+  select(id);
+});
+
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") select(null); });
+
+function select(id) {
+  state.selectedId = id;
+  state.hoveredId = null;
+  if (id) state.hasExplored = true;
+  renderCard();
+  renderStageControls();
+}
+
+/* =========================================================================
+   9. HUD RENDERING
+   ========================================================================= */
+const kpiRail = document.getElementById("kpi-rail");
+const legendList = document.getElementById("legend-list");
+const rolesEl = document.getElementById("roles");
+const searchForm = document.getElementById("search-form");
+const searchInput = document.getElementById("survey-search");
+const noticeSlot = document.getElementById("notice-slot");
+const hintSlot = document.getElementById("hint-slot");
+const exitSlot = document.getElementById("exit-slot");
+const recordEl = document.getElementById("record");
+
+function renderKpis() {
+  const k = computeKpis();
+  const metrics = [
+    { label: "Land in possession", value: (k.possessedAreaSqm / 10000).toFixed(2), unit: "ha", fill: k.progress,
+      foot: "of " + (k.totalAreaSqm / 10000).toFixed(2) + " ha under acquisition" },
+    { label: "Compensation disbursed", value: formatRupees(k.disbursed), fill: k.disbursed / Math.max(k.disbursed + k.committed, 1),
+      foot: k.committed > 0 ? (formatRupees(k.committed) + " awarded, awaiting payment") : "Nothing left awaiting payment" },
+    { label: "Families resettled", value: "" + k.familiesResettled, unit: "/ " + k.familiesAffected,
+      fill: k.familiesAffected ? k.familiesResettled / k.familiesAffected : 0,
+      foot: (k.familiesAffected - k.familiesResettled) + " still to be rehoused" },
+    { label: "Awaiting approval", value: "" + k.pendingApprovals, unit: "/ " + baseParcels.length,
+      fill: baseParcels.length ? k.pendingApprovals / baseParcels.length : 0, foot: "Parcels short of an award" },
+  ];
+  kpiRail.innerHTML = metrics.map((m, i) =>
+    '<article class="panel kpi" style="--i:' + i + '">' +
+      '<p class="kpi__label">' + m.label + '</p>' +
+      '<p class="kpi__value">' + m.value + (m.unit ? ('<span>' + m.unit + '</span>') : '') + '</p>' +
+      '<div class="kpi__meter"><i style="width:' + Math.round(m.fill * 100) + '%"></i></div>' +
+      '<p class="kpi__foot">' + m.foot + '</p>' +
+    '</article>').join("");
+}
+
+function renderLegend() {
+  const counts = {};
+  STAGE_ORDER.forEach((s) => { counts[s] = 0; });
+  baseParcels.forEach((p) => { const s = stageOf(p); counts[s] = (counts[s] || 0) + 1; });
+  legendList.innerHTML = STAGE_ORDER.map((stage) =>
+    '<li class="legend__row">' +
+      '<span class="legend__swatch" style="background:' + STAGE_STYLE[stage].color + '"></span>' +
+      '<span class="legend__label">' + STAGE_STYLE[stage].label + '</span>' +
+      '<span class="legend__count">' + counts[stage] + '</span>' +
+    '</li>').join("");
+}
+
+function setRole(role) {
+  state.role = role;
+  rolesEl.setAttribute("data-role", role);
+  Array.prototype.forEach.call(rolesEl.querySelectorAll("[data-role-btn]"), (b) => {
+    b.setAttribute("aria-pressed", String(b.dataset.roleBtn === role));
+  });
+  searchForm.setAttribute("data-shown", String(role === "public"));
+  renderCard();
+}
+Array.prototype.forEach.call(rolesEl.querySelectorAll("[data-role-btn]"), (b) => {
+  b.addEventListener("click", () => setRole(b.dataset.roleBtn));
+});
+
+searchForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = searchInput.value.trim().toLowerCase();
+  if (!q) return;
+  const hit = baseParcels.find((p) =>
+    p.props.surveyNo.toLowerCase() === q || p.props.parcelId.toLowerCase() === q ||
+    p.props.ulpin.toLowerCase() === q || p.props.owner.toLowerCase().indexOf(q) !== -1);
+  if (hit) { select(hit.id); searchInput.value = ""; }
+  else notify('No record matches "' + searchInput.value.trim() + '".');
+});
+
+let noticeTimer = null;
+function notify(message) {
+  clearTimeout(noticeTimer);
+  noticeSlot.innerHTML = '<p class="pill pill--notice" data-state="entering" role="status">' + message + '</p>';
+  noticeTimer = setTimeout(() => {
+    const el = noticeSlot.firstElementChild;
+    if (!el) return;
+    el.setAttribute("data-state", "leaving");
+    setTimeout(() => { noticeSlot.innerHTML = ""; }, 220);
+  }, 3200);
+}
+
+function renderStageControls() {
+  const sel = selectedParcel();
+  hintSlot.innerHTML = "";
+  exitSlot.innerHTML = "";
+  if (!sel && !state.hasExplored) {
+    hintSlot.innerHTML = '<p class="pill" data-state="entering">' +
+      '<svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.6 2.2 12.6 7.6l-3.9 1 -1.4 3.8Z" fill="currentColor" opacity="0.85"/></svg>' +
+      'Click any plot of land to open its record</p>';
+  } else if (sel) {
+    exitSlot.innerHTML = '<button type="button" class="pill" data-state="entering" id="exit-btn">Back to the full map<kbd>Esc</kbd></button>';
+    document.getElementById("exit-btn").addEventListener("click", () => select(null));
+  }
+}
+
+function renderCard() {
+  const sel = selectedParcel();
+  if (!sel) { recordEl.style.display = "none"; return; }
+  recordEl.style.display = "flex";
+  recordEl.setAttribute("data-state", "entering");
+
+  const stage = stageOf(sel);
+  const style = STAGE_STYLE[stage];
+  const currentIndex = STAGE_ORDER.indexOf(stage);
+  const next = nextStage(stage);
+  const canAct = state.role === "collector";
+
+  document.getElementById("rec-no").textContent = sel.props.surveyNo;
+  document.getElementById("rec-where").textContent = sel.props.village + " \u00b7 Parcel " + sel.props.parcelId;
+  document.getElementById("rec-chip-dot").style.background = style.color;
+  document.getElementById("rec-chip-label").textContent = style.label;
+  document.getElementById("rec-hint").textContent = style.hint;
+
+  document.getElementById("rec-track").innerHTML = STAGE_ORDER.map((s, i) =>
+    '<span class="track__step" data-done="' + (i <= currentIndex) + '" title="' + STAGE_STYLE[s].label + '"><i></i></span>').join("");
+
+  const rows = [
+    ["Recorded owner", sel.props.owner],
+    ["ULPIN", sel.props.ulpin, "row__value--code"],
+    ["Land use", sel.props.landUse],
+    ["Area", formatArea(sel.props.areaSqm)],
+    ["Assessed rate", formatRupeesExact(sel.props.ratePerSqm) + " / sq m"],
+    ["Compensation", formatRupees(sel.props.compensation), "row__value--lead"],
+    ["Families affected", sel.props.families === 0 ? "None \u2014 common land" : ("" + sel.props.families)],
+    ["Section 11 notice", formatDate(sel.props.notifiedOn)],
+  ];
+  document.getElementById("rec-rows").innerHTML = rows.map((r) =>
+    '<div class="row"><span class="row__key">' + r[0] + '</span><span class="row__value ' + (r[2] || "") + '">' + r[1] + '</span></div>').join("");
+
+  const foot = document.getElementById("rec-footer");
+  if (canAct) {
+    foot.innerHTML = '<footer class="record__foot">' +
+      '<button class="btn btn--primary" id="advance-btn" ' + (next ? "" : "disabled") + '>' +
+        (next ? ("Move to " + STAGE_STYLE[next].label.toLowerCase()) : "Fully acquired") + '</button>' +
+      '<button class="btn btn--ghost" id="close-btn">Close</button>' +
+    '</footer>';
+    document.getElementById("advance-btn").addEventListener("click", () => advanceStage(sel.id));
+    document.getElementById("close-btn").addEventListener("click", () => select(null));
+  } else {
+    foot.innerHTML = '<p class="note">You are viewing this record as a landowner. Stages are updated by the district office.</p>' +
+      '<footer class="record__foot"><button class="btn btn--ghost" style="flex:1" id="close-btn">Close</button></footer>';
+    document.getElementById("close-btn").addEventListener("click", () => select(null));
+  }
+}
+
+function advanceStage(id) {
+  const parcel = baseParcels.find((p) => p.id === id);
+  if (!parcel) return;
+  const stage = stageOf(parcel);
+  const next = nextStage(stage);
+  if (!next) { notify(parcel.props.surveyNo + " is already fully acquired."); return; }
+  state.overrides[id] = next;
+  notify(parcel.props.surveyNo + " moved to " + STAGE_STYLE[next].label + ".");
+  refreshParcelLabel(parcelRuntime.get(id));
+  renderKpis(); renderLegend(); renderCard();
+}
+
+/* =========================================================================
+   10. RESIZE + ANIMATE
+   ========================================================================= */
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
+window.addEventListener("resize", onResize);
+onResize();
+
+const clock = new THREE.Clock();
+const screenPos = new THREE.Vector3();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 1 / 30);
+
+  updateCamera(dt);
+
+  const selId = state.selectedId, hovId = state.hoveredId;
+
+  parcelRuntime.forEach((rt) => {
+    const isSel = rt.parcel.id === selId, isHov = rt.parcel.id === hovId;
+    const dimmed = selId !== null && !isSel;
+    const stage = stageOf(rt.parcel);
+    const style = STAGE_STYLE[stage];
+
+    const wantLift = isSel ? LIFT.selected : isHov ? LIFT.hovered : LIFT.rest;
+    rt.liftY = damp(rt.liftY, wantLift, 6, dt);
+    rt.lift.position.y = rt.liftY;
+
+    rt.scale = damp(rt.scale, isHov && !isSel ? 1.018 : 1, 7, dt);
+    rt.lift.scale.setScalar(rt.scale);
+
+    rt.glow = damp(rt.glow, isSel ? GLOW.selected : isHov ? GLOW.hovered : GLOW.rest, 6, dt);
+    rt.material.emissiveIntensity = rt.glow;
+
+    const blend = 1 - Math.exp(-5 * dt);
+    const targetColor = dimmed
+      ? new THREE.Color(style.color).lerp(new THREE.Color(PALETTE.canvas), 0.42)
+      : new THREE.Color(style.color);
+    rt.material.color.lerp(targetColor, blend);
+    rt.material.emissive.lerp(new THREE.Color(style.glow), blend);
+    rt.edges.material.opacity = damp(rt.edges.material.opacity, dimmed ? 0.12 : 0.28, 6, dt);
+
+    const wantRingScale = isSel ? 1 : 0.82;
+    rt.ring.scale.x = rt.ring.scale.y = damp(rt.ring.scale.x, wantRingScale, 7, dt);
+    rt.ring.material.opacity = damp(rt.ring.material.opacity, isSel ? 0.55 : 0, 7, dt);
+
+    screenPos.set(rt.group.position.x, rt.lift.position.y + PARCEL_DEPTH + 0.12, rt.group.position.z);
+    screenPos.project(camera);
+    const sx = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+    const sy = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+    rt.label.style.left = sx + "px";
+    rt.label.style.top = sy + "px";
+    const behindCamera = screenPos.z > 1;
+    const showLabel = !behindCamera && (!dimmed || isSel);
+    rt.label.setAttribute("data-visible", String(showLabel));
+    rt.label.setAttribute("data-active", String(isHov || isSel));
+  });
+
+  renderer.render(scene, camera);
+}
+
+renderKpis();
+renderLegend();
+renderStageControls();
+setRole("collector");
+animate();
+</script>
+</body>
+</html>
