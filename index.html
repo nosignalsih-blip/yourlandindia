@@ -550,7 +550,7 @@ tr:hover .cgo,.cgo:focus-visible{opacity:1}
   <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>
   <button id="zout" title="Zoom out" aria-label="Zoom out">&minus;</button>
 </div>
-<p class="attrib">Basemap &copy; OpenStreetMap contributors, &copy; CARTO &middot; Cadastre: Revenue Dept, GNCTD (demonstration data)</p>
+<p class="attrib">Map data &copy; Esri &middot; Cadastre: Revenue Dept, GNCTD</p>
 
 <div class="hud">
   <header class="panel bar">
@@ -1434,7 +1434,7 @@ function updateTiles(){
     img.style.cssText="position:absolute;display:block;left:"+(x*tw-OX)+"px;top:"+(y*tw-OY)+
       "px;width:"+tw+"px;height:"+tw+"px";
     img.onerror=()=>{img.style.visibility="hidden";};
-    img.src="https://basemaps.cartocdn.com/rastertiles/voyager/"+tz+"/"+xx+"/"+y+".png";
+    img.src = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/" + tz + "/" + y + "/" + xx;
     L.el.appendChild(img); L.tiles.set(key,img);
   }
 }
