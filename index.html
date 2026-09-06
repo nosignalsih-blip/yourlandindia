@@ -2,1162 +2,1470 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Bhu-Abhilekh &middot; Public Khasra Register, Revenue Village Bakkarwala</title>
-<!--
-  National Land Acquisition & Management System - citizen module.
-  One file, no build step. The only network dependency is the basemap tile
-  service; everything else is inline.
-
-  This screen is the online replacement for the paper khasra girdawari /
-  patta: a citizen looks up a plot, sees the land facts, and cannot see who
-  owns it without a recorded, reasoned request to the District Collector.
--->
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Land Acquisition &amp; Management System &middot; Workspace</title>
 <style>
-  :root{
-    --cream:#fdfbf7;--ink:#3e2723;--ink-80:rgba(62,39,35,.8);--ink-60:rgba(62,39,35,.6);
-    --ink-40:rgba(62,39,35,.4);--latte:#d7ccc8;--latte-soft:rgba(215,204,200,.62);
-    --glass-fill:linear-gradient(170deg,rgba(255,255,255,.92),rgba(255,255,255,.72));
-    --glass-blur:blur(22px) saturate(175%);
-    --glass-edge:inset 0 1px 0 rgba(255,255,255,.95),inset 0 0 0 1px rgba(255,255,255,.34);
-    --shadow-soft:0 26px 52px -30px rgba(62,39,35,.5),0 3px 8px -4px rgba(62,39,35,.14);
-    --r-lg:18px;--r-md:12px;--ease:cubic-bezier(.16,1,.3,1);
-    --font-ui:"Inter Tight","Inter",ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-    --font-display:"Newsreader","Source Serif 4",Georgia,serif;
-  }
-  *{box-sizing:border-box}
-  /* The `hidden` attribute must beat any display rule, or the signed-out
-     chrome (sign-out button, identity chip) leaks into the public view. */
-  [hidden]{display:none !important}
-  html,body{margin:0;height:100%;background:var(--cream);color:var(--ink);font-family:var(--font-ui);
-    font-size:14px;line-height:1.45;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;overflow:hidden}
+/* =====================================================================
+   Land Acquisition & Management System - workspace stylesheet
+   Tokens, glass panels, motion curves and type scale are lifted verbatim
+   from the existing index.html so the workspace and the public register
+   read as one product.
+   ===================================================================== */
+:root{
+  --cream:#fdfbf7;--ink:#3e2723;--ink-80:rgba(62,39,35,.8);--ink-60:rgba(62,39,35,.6);
+  --ink-40:rgba(62,39,35,.4);--latte:#d7ccc8;--latte-soft:rgba(215,204,200,.62);
+  --glass-fill:linear-gradient(170deg,rgba(255,255,255,.92),rgba(255,255,255,.72));
+  --glass-blur:blur(22px) saturate(175%);
+  --glass-edge:inset 0 1px 0 rgba(255,255,255,.95),inset 0 0 0 1px rgba(255,255,255,.34);
+  --shadow-soft:0 26px 52px -30px rgba(62,39,35,.5),0 3px 8px -4px rgba(62,39,35,.14);
+  --r-lg:18px;--r-md:12px;--ease:cubic-bezier(.16,1,.3,1);
+  --font-ui:"Inter Tight","Inter",ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --font-display:"Newsreader","Source Serif 4",Georgia,serif;
+  --ok:#4a6440;--warn:#8a4a22;--err:#9E3B26;
+}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0;min-height:100%;background:var(--cream);color:var(--ink);
+  font-family:var(--font-ui);font-size:14px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
 
-  /* ---------- map ---------- */
-  #map{position:fixed;inset:0;overflow:hidden;background:#EDE7DD;cursor:grab;touch-action:none}
-  #map.dragging{cursor:grabbing}
-  #world{position:absolute;top:0;left:0;transform-origin:0 0;--inv:1}
-  #tiles img{position:absolute;width:256px;height:256px;display:block;image-rendering:auto}
-  #cad{position:absolute;top:0;left:0;overflow:visible}
-  .road-case{fill:none;stroke:#cfc6bb;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
-  .road-fill{fill:none;stroke:#fffdf9;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
-  .bld{fill:#d9cfc4;fill-opacity:.85;stroke:#b8ab9d;stroke-width:.7;vector-effect:non-scaling-stroke}
-  .plot{fill-opacity:.5;stroke:#3e2723;stroke-width:1.1;stroke-opacity:.55;
-    vector-effect:non-scaling-stroke;cursor:pointer;
-    transition:fill-opacity 220ms var(--ease),stroke-opacity 220ms var(--ease)}
-  .plot:hover{fill-opacity:.72;stroke-opacity:.9;stroke-width:1.8}
-  .plot[data-sel="true"]{fill-opacity:.8;stroke-width:2.6;stroke-opacity:1}
-  .plot[data-dim="true"]{fill-opacity:.22;stroke-opacity:.28}
+.panel{background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);
+  backdrop-filter:var(--glass-blur);border:1px solid var(--latte-soft);
+  border-radius:var(--r-lg);box-shadow:var(--glass-edge),var(--shadow-soft)}
+@keyframes panel-in{from{opacity:0;transform:translate3d(0,12px,0) scale(.985)}to{opacity:1;transform:none}}
+.anim{animation:panel-in 520ms var(--ease) both}
 
-  /* ---------- pins ---------- */
-  #pins{position:absolute;top:0;left:0}
-  .pin{position:absolute;transform:translate(-50%,-50%) scale(var(--inv));transform-origin:50% 50%;
-    pointer-events:none;white-space:nowrap}
-  .pin__chip{display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;
-    border:1px solid rgba(215,204,200,.9);background:rgba(253,251,247,.92);
-    -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
-    box-shadow:0 6px 14px -9px rgba(62,39,35,.75);font-size:11px;font-weight:600;letter-spacing:.01em;
-    transition:opacity 240ms var(--ease),transform 240ms var(--ease)}
-  .pin__dot{width:7px;height:7px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(62,39,35,.25)}
-  .pin__area{font-weight:400;color:var(--ink-60);max-width:0;overflow:hidden;opacity:0;
-    transition:max-width 340ms var(--ease),opacity 200ms ease}
-  .pin[data-active="true"] .pin__area{max-width:120px;opacity:1}
-  .pin[data-dim="true"] .pin__chip{opacity:.35}
+/* ---------- shell ---------- */
+.shell{display:grid;grid-template-columns:236px 1fr;min-height:100vh}
+.side{border-right:1px solid var(--latte-soft);padding:18px 14px;display:flex;flex-direction:column;gap:16px;
+  background:linear-gradient(180deg,rgba(255,255,255,.7),rgba(255,255,255,.4))}
+.brand{display:flex;align-items:center;gap:11px}
+.brand svg{width:34px;height:34px;color:var(--ink);opacity:.9;flex:none}
+.brand h1{margin:0;font-family:var(--font-display);font-size:16px;font-weight:500;line-height:1.15}
+.brand p{margin:1px 0 0;font-size:10.5px;color:var(--ink-60)}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav button{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border:0;border-radius:10px;
+  background:none;font:inherit;font-size:13px;color:var(--ink-80);text-align:left;cursor:pointer;
+  transition:background 180ms var(--ease),color 180ms var(--ease)}
+.nav button:hover{background:rgba(62,39,35,.06)}
+.nav button[aria-current="true"]{background:var(--ink);color:var(--cream)}
+.side__foot{margin-top:auto;padding-top:14px;border-top:1px solid var(--latte-soft)}
+.me{font-size:12.5px}.me b{display:block}.me span{color:var(--ink-60);font-size:11px}
+.rolechip{display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;
+  background:rgba(62,39,35,.07);font-size:10.5px;letter-spacing:.03em;text-transform:uppercase}
+.main{padding:22px 26px 60px;max-width:1180px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:18px}
+.head h2{margin:0;font-family:var(--font-display);font-size:26px;font-weight:500;letter-spacing:-.015em}
+.head p{margin:4px 0 0;font-size:12.5px;color:var(--ink-60)}
 
-  /* ---------- pin popup ---------- */
-  .popup{position:absolute;transform:translate(-50%,calc(-100% - 16px)) scale(var(--inv));
-    transform-origin:50% 100%;width:264px;padding:14px 15px 13px;border-radius:15px;
-    border:1px solid var(--latte-soft);background:var(--glass-fill);
-    -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
-    box-shadow:var(--glass-edge),var(--shadow-soft);z-index:5;
-    animation:pop-in 420ms var(--ease) both}
-  @keyframes pop-in{from{opacity:0;transform:translate(-50%,calc(-100% - 4px)) scale(calc(var(--inv)*.94))}
-    to{opacity:1;transform:translate(-50%,calc(-100% - 16px)) scale(var(--inv))}}
-  .popup::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;
-    margin-left:-6px;transform:rotate(45deg);background:rgba(255,255,255,.78);
-    border-right:1px solid var(--latte-soft);border-bottom:1px solid var(--latte-soft)}
-  .popup__k{margin:0;font-family:var(--font-display);font-size:20px;font-weight:500;letter-spacing:-.01em;line-height:1.1}
-  .popup__u{margin:3px 0 10px;font-size:11.5px;color:var(--ink-60)}
-  .popup__grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;margin-bottom:11px}
-  .popup__cell span{display:block;font-size:10.5px;color:var(--ink-40)}
-  .popup__cell b{font-size:13px;font-weight:600}
-  .popup__btn{width:100%;padding:8px 10px;border:0;border-radius:9px;background:var(--ink);
-    color:var(--cream);font:inherit;font-size:12px;cursor:pointer}
-  .popup__btn:hover{background:#2f1d1a}
+/* ---------- stats ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px;margin-bottom:20px}
+.stat{padding:13px 15px 14px}
+.stat p{margin:0;font-size:11.5px;color:var(--ink-60)}
+.stat b{display:block;margin-top:4px;font-size:26px;font-weight:600;letter-spacing:-.02em;line-height:1.05}
 
-  /* ---------- HUD ---------- */
-  .hud{position:fixed;inset:0;pointer-events:none;z-index:8;display:grid;
-    grid-template-columns:264px 1fr 348px;grid-template-rows:auto 1fr auto;gap:16px;padding:16px}
-  .hud>*{pointer-events:auto}
-  .panel{background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
-    border:1px solid var(--latte-soft);border-radius:var(--r-lg);box-shadow:var(--glass-edge),var(--shadow-soft)}
-  .panel[data-state="entering"]{animation:panel-in 520ms var(--ease) both}
-  @keyframes panel-in{from{opacity:0;transform:translate3d(20px,10px,0) scale(.978)}to{opacity:1;transform:none}}
+/* ---------- table / list ---------- */
+.card{padding:16px 18px 18px;margin-bottom:16px}
+.card>h3{margin:0 0 3px;font-family:var(--font-display);font-size:17px;font-weight:500}
+.card>h3+p{margin:0 0 14px;font-size:12px;color:var(--ink-60)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:10.5px;letter-spacing:.03em;color:var(--ink-40);
+  font-weight:500;padding:0 10px 8px 0;border-bottom:1px solid var(--latte-soft)}
+td{padding:10px 10px 10px 0;border-bottom:1px solid rgba(215,204,200,.4);font-size:13px;vertical-align:top}
+tr:last-child td{border-bottom:0}
+.mono{font-variant-numeric:tabular-nums;letter-spacing:.02em}
 
-  .bar{grid-column:1/-1;grid-row:1;display:flex;align-items:center;justify-content:space-between;
-    gap:18px;padding:11px 16px;animation:panel-in 560ms var(--ease) both}
-  .bar__mark{display:flex;align-items:center;gap:13px;min-width:0}
-  .bar__seal{flex:none;width:36px;height:36px;color:var(--ink);opacity:.9}
-  .bar__title{margin:0;font-family:var(--font-display);font-size:18px;font-weight:500;letter-spacing:-.012em;line-height:1.1;white-space:nowrap}
-  .bar__sub{margin:2px 0 0;font-size:11.5px;color:var(--ink-60);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .bar__tools{display:flex;align-items:center;gap:10px}
-  .search{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--latte);
-    border-radius:999px;background:rgba(253,251,247,.8)}
-  .search:focus-within{border-color:var(--ink-40);box-shadow:0 0 0 3px rgba(62,39,35,.07)}
-  .search span{font-size:11.5px;color:var(--ink-40)}
-  .search input{width:150px;border:0;background:none;font:inherit;font-size:13px;color:var(--ink);outline:none}
-  .viewchip{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border:1px solid var(--latte);
-    border-radius:999px;background:rgba(253,251,247,.8);font-size:12px;color:var(--ink-60)}
-  .viewchip b{color:var(--ink);font-weight:600}
-  .who{display:flex;align-items:center;gap:10px;padding:4px 5px 4px 12px;border:1px solid var(--latte);
-    border-radius:999px;background:rgba(253,251,247,.8)}
-  .who__name{font-size:12.5px;line-height:1.2}.who__role{font-size:10.5px;color:var(--ink-60)}
-  .who__in{border:0;background:var(--ink);color:var(--cream);font:inherit;font-size:12.5px;
-    padding:8px 15px;border-radius:999px;cursor:pointer}
-  .who__in:hover{background:#2f1d1a}
-  .who__out{border:0;background:rgba(62,39,35,.06);color:var(--ink-80);font:inherit;font-size:11.5px;
-    padding:6px 11px;border-radius:999px;cursor:pointer}
-  .who__out:hover{background:rgba(62,39,35,.13)}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+  background:rgba(62,39,35,.06);font-size:11px;white-space:nowrap}
+.badge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ink-40)}
+.badge[data-s="draft"]::before{background:#BCADA0}
+.badge[data-s="submitted"]::before{background:#D9A441}
+.badge[data-s="under_review"]::before{background:#C2703E}
+.badge[data-s="verified"]::before{background:#6E8C63}
+.badge[data-s="rejected"]::before{background:#9E3B26}
+.badge[data-s="pending"]::before{background:#D9A441}
 
-  .rail{grid-column:1;grid-row:2;align-self:start;display:flex;flex-direction:column;gap:9px}
-  .kpi{padding:13px 15px 14px;animation:panel-in 560ms var(--ease) both;animation-delay:calc(var(--i)*70ms + 100ms)}
-  .kpi__label{margin:0;font-size:11.5px;color:var(--ink-60)}
-  .kpi__value{margin:4px 0 0;font-size:25px;font-weight:600;letter-spacing:-.02em;line-height:1.05}
-  .kpi__value span{margin-left:3px;font-size:13px;font-weight:500;color:var(--ink-60)}
-  .kpi__meter{margin-top:9px;height:3px;border-radius:999px;background:rgba(62,39,35,.1);overflow:hidden}
-  .kpi__meter i{display:block;height:100%;border-radius:999px;background:var(--ink);transition:width 700ms var(--ease)}
-  .kpi__foot{margin:7px 0 0;font-size:11px;color:var(--ink-40);line-height:1.45}
+/* ---------- forms ---------- */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--ink-60);margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--latte);
+  border-radius:var(--r-md);background:rgba(255,255,255,.8);font:inherit;font-size:13.5px;color:var(--ink);outline:none;
+  transition:border-color 180ms var(--ease),box-shadow 180ms var(--ease)}
+.field textarea{min-height:84px;resize:vertical;line-height:1.5}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--ink-40);box-shadow:0 0 0 3px rgba(62,39,35,.07)}
+.field small{display:block;margin-top:5px;font-size:11px;color:var(--err)}
+.row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
 
-  .legend{grid-column:1;grid-row:3;align-self:end;padding:11px 13px;animation:panel-in 560ms var(--ease) both;animation-delay:400ms}
-  .legend__head{margin:0 0 8px;font-size:11px;color:var(--ink-60)}
-  .legend__list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
-  .legend__row{display:flex;align-items:center;gap:8px;font-size:12px}
-  .legend__sw{flex:none;width:10px;height:10px;border-radius:3px;box-shadow:inset 0 0 0 1px rgba(62,39,35,.2)}
-  .legend__lb{flex:1}.legend__ct{color:var(--ink-40)}
+.btn{padding:10px 15px;border:1px solid transparent;border-radius:var(--r-md);font:inherit;font-size:13px;cursor:pointer;
+  transition:background 180ms var(--ease),transform 140ms var(--ease)}
+.btn:active:not(:disabled){transform:scale(.985)}
+.btn:disabled{opacity:.55;cursor:default}
+.btn--primary{background:var(--ink);color:var(--cream)}
+.btn--primary:hover:not(:disabled){background:#2f1d1a}
+.btn--ghost{border-color:var(--latte);background:rgba(255,255,255,.65);color:var(--ink-80)}
+.btn--ghost:hover:not(:disabled){background:#fff}
+.btn--danger{background:#9E3B26;color:#fff}
+.btn--sm{padding:6px 11px;font-size:12px;border-radius:9px}
 
-  .stage{grid-column:2;grid-row:3;justify-self:center;align-self:end;display:flex;flex-direction:column;
-    align-items:center;gap:9px;pointer-events:none}
-  .stage>*{pointer-events:auto}
-  .pill{display:inline-flex;align-items:center;gap:9px;padding:9px 15px;border:1px solid var(--latte-soft);
-    border-radius:999px;background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);
-    backdrop-filter:var(--glass-blur);box-shadow:var(--glass-edge),var(--shadow-soft);font:inherit;font-size:12.5px;color:var(--ink);
-    animation:pill-in 460ms var(--ease) both}
-  @keyframes pill-in{from{opacity:0;transform:translateY(12px) scale(.96)}to{opacity:1;transform:none}}
-  button.pill{cursor:pointer}
-  button.pill:hover{transform:translateY(-1px)}
-  .pill kbd{padding:2px 6px;border:1px solid var(--latte);border-radius:5px;background:rgba(255,255,255,.8);font:inherit;font-size:10px;color:var(--ink-60)}
-  .pill--notice{background:linear-gradient(170deg,rgba(62,39,35,.95),rgba(62,39,35,.88));border-color:rgba(62,39,35,.9);color:var(--cream)}
+/* ---------- auth ---------- */
+.authwrap{min-height:100vh;display:grid;place-items:center;padding:24px}
+.authcard{width:100%;max-width:430px;padding:28px 28px 24px}
+.authcard h2{margin:14px 0 0;font-family:var(--font-display);font-size:24px;font-weight:500}
+.authcard>p{margin:7px 0 20px;font-size:12.5px;color:var(--ink-60);line-height:1.55}
+.tabs{display:flex;padding:3px;border:1px solid var(--latte);border-radius:999px;margin-bottom:18px;
+  background:rgba(253,251,247,.7)}
+.tabs button{flex:1;padding:8px;border:0;border-radius:999px;background:none;font:inherit;font-size:12.5px;
+  color:var(--ink-60);cursor:pointer;transition:background 200ms var(--ease),color 200ms var(--ease)}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--cream)}
 
-  .record{grid-column:3;grid-row:2/4;align-self:start;display:flex;flex-direction:column;max-height:100%;overflow:hidden}
-  .record__head{padding:15px 17px 13px;border-bottom:1px solid var(--latte-soft)}
-  .record__eyebrow{margin:0;font-size:11px;color:var(--ink-40)}
-  .record__no{margin:3px 0 0;font-family:var(--font-display);font-size:25px;font-weight:500;letter-spacing:-.015em;line-height:1.1}
-  .record__where{margin:4px 0 11px;font-size:12px;color:var(--ink-60)}
-  .chips{display:flex;flex-wrap:wrap;gap:6px}
-  .chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 7px;border-radius:999px;
-    background:rgba(62,39,35,.055);font-size:11.5px}
-  .chip__dot{width:8px;height:8px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(62,39,35,.2)}
-  .chip--warn{background:rgba(194,112,62,.14);color:#8a4a22}
-  .chip--ok{background:rgba(110,140,99,.16);color:#4a6440}
-  .record__body{flex:1;min-height:0;overflow-y:auto;padding:6px 17px 14px}
-  .sec{margin:10px 0 2px;font-size:10.5px;letter-spacing:.03em;color:var(--ink-40)}
-  .row{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:8px 0;
-    border-bottom:1px solid rgba(215,204,200,.4)}
-  .row:last-child{border-bottom:0}
-  .row__k{flex:none;font-size:12px;color:var(--ink-60)}
-  .row__v{text-align:right;font-size:13px;overflow-wrap:anywhere}
-  .row__v--lead{font-size:16px;font-weight:600;letter-spacing:-.01em}
-  .locked{margin:10px 0 2px;padding:12px 13px;border:1px dashed var(--latte);border-radius:var(--r-md);background:rgba(62,39,35,.035)}
-  .locked__h{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-80)}
-  .locked__b{margin:6px 0 0;font-size:11px;color:var(--ink-40);line-height:1.5}
-  .locked__btn{margin-top:9px;width:100%;padding:9px 11px;border:1px solid var(--latte);border-radius:9px;
-    background:rgba(255,255,255,.75);font:inherit;font-size:12.5px;color:var(--ink);cursor:pointer}
-  .locked__btn:hover{background:#fff}
-  .record__foot{display:flex;gap:8px;padding:11px 17px 15px;border-top:1px solid var(--latte-soft)}
-  .btn{flex:1;padding:10px 13px;border:1px solid transparent;border-radius:var(--r-md);font:inherit;font-size:12.5px;cursor:pointer}
-  .btn--primary{background:var(--ink);color:var(--cream)}
-  .btn--primary:hover{background:#2f1d1a}
-  .btn--primary:disabled{background:rgba(62,39,35,.14);color:var(--ink-40);cursor:default}
-  .btn--ghost{flex:0 0 auto;border-color:var(--latte);background:rgba(255,255,255,.65);color:var(--ink-80)}
-  .btn--ghost:hover{background:#fff}
-  .note{margin:0;padding:9px 17px 13px;font-size:11.5px;color:var(--ink-60);border-top:1px solid var(--latte-soft)}
+/* ---------- states ---------- */
+.empty{padding:26px 18px;text-align:center;border:1px dashed var(--latte);border-radius:var(--r-md);
+  color:var(--ink-40);font-size:12.5px}
+.loading{display:flex;align-items:center;gap:9px;padding:16px 0;color:var(--ink-60);font-size:12.5px}
+.spin{width:13px;height:13px;border:2px solid var(--latte);border-top-color:var(--ink);
+  border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.errbox{padding:12px 14px;border:1px solid rgba(158,59,38,.35);border-radius:var(--r-md);
+  background:rgba(158,59,38,.07);color:var(--err);font-size:12.5px}
 
-  .modal{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:24px;
-    background:rgba(62,39,35,.3);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-  .modal[hidden]{display:none}
-  .modal__card{width:100%;max-width:420px;padding:25px 25px 21px;border:1px solid var(--latte-soft);
-    border-radius:20px;background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
-    box-shadow:var(--glass-edge),var(--shadow-soft);animation:panel-in 440ms var(--ease) both}
-  .modal__title{margin:0;font-family:var(--font-display);font-size:21px;font-weight:500}
-  .modal__sub{margin:7px 0 18px;font-size:12.5px;color:var(--ink-60);line-height:1.55}
-  .field{margin-bottom:11px}
-  .field label{display:block;font-size:12px;color:var(--ink-60);margin-bottom:5px}
-  .field input,.field textarea{width:100%;padding:10px 12px;border:1px solid var(--latte);border-radius:var(--r-md);
-    background:rgba(255,255,255,.8);font:inherit;font-size:13.5px;color:var(--ink);outline:none}
-  .field textarea{min-height:88px;resize:vertical;line-height:1.5}
-  .field input:focus,.field textarea:focus{border-color:var(--ink-40);box-shadow:0 0 0 3px rgba(62,39,35,.07)}
-  .modal__row{display:flex;gap:8px;margin-top:4px}
-  .modal__msg{margin:11px 0 0;font-size:12.5px;min-height:17px}
-  .modal__msg[data-kind="error"]{color:#9E3B26}
-  .modal__foot{margin:16px 0 0;padding-top:13px;border-top:1px solid var(--latte-soft);font-size:11px;color:var(--ink-40);line-height:1.55}
+/* ---------- toasts ---------- */
+.toasts{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:60;
+  display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none}
+.toast{pointer-events:auto;display:inline-flex;align-items:center;gap:9px;padding:10px 17px;border-radius:999px;
+  border:1px solid var(--latte-soft);background:var(--glass-fill);
+  -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
+  box-shadow:var(--glass-edge),var(--shadow-soft);font-size:12.5px;
+  animation:panel-in 420ms var(--ease) both}
+.toast[data-k="err"]{background:linear-gradient(170deg,rgba(158,59,38,.95),rgba(158,59,38,.88));
+  border-color:rgba(158,59,38,.9);color:#fff}
+.toast[data-k="ok"]{background:linear-gradient(170deg,rgba(62,39,35,.95),rgba(62,39,35,.88));
+  border-color:rgba(62,39,35,.9);color:var(--cream)}
 
-  /* Village marker shown at national zoom. Lives outside #world and is
-     positioned in screen pixels each frame, so it never inherits the map's
-     scale and stays legible from any altitude. */
-  .demo{position:fixed;z-index:7;transform:translate(-50%,-100%);pointer-events:none}
-  .demo__card{pointer-events:auto;width:236px;padding:13px 14px;border-radius:15px;
-    border:1px solid var(--latte-soft);background:var(--glass-fill);
-    -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
-    box-shadow:var(--glass-edge),var(--shadow-soft)}
-  .demo__card::after{content:"";position:absolute;left:50%;bottom:-7px;width:12px;height:12px;
-    margin-left:-6px;transform:rotate(45deg);background:rgba(255,255,255,.78);
-    border-right:1px solid var(--latte-soft);border-bottom:1px solid var(--latte-soft)}
-  .demo__t{margin:0;font-family:var(--font-display);font-size:17px;font-weight:500;line-height:1.15}
-  .demo__s{margin:3px 0 10px;font-size:11.5px;color:var(--ink-60);line-height:1.45}
-  .demo__b{width:100%;padding:8px 10px;border:0;border-radius:9px;background:var(--ink);
-    color:var(--cream);font:inherit;font-size:12px;cursor:pointer}
-  .demo__b:hover{background:#2f1d1a}
-  .demo__pin{position:absolute;left:50%;bottom:-13px;width:11px;height:11px;margin-left:-5.5px;
-    border-radius:50%;background:#C2703E;box-shadow:0 0 0 3px rgba(194,112,62,.28),0 2px 6px rgba(62,39,35,.5)}
-  #scene3d{position:fixed;inset:0;z-index:1;opacity:0;pointer-events:none;
-    transition:opacity 900ms var(--ease)}
-  #scene3d[data-on="true"]{opacity:1;pointer-events:auto}
-  #map[data-off="true"]{opacity:0;pointer-events:none;transition:opacity 700ms var(--ease)}
-  .leave{position:fixed;right:16px;bottom:16px;z-index:9;display:none;align-items:center;gap:8px;
-    padding:10px 16px;border:1px solid var(--latte-soft);border-radius:999px;background:var(--glass-fill);
-    -webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
-    box-shadow:var(--glass-edge),var(--shadow-soft);font:inherit;font-size:12.5px;color:var(--ink);cursor:pointer}
-  .leave[data-on="true"]{display:inline-flex}
-  .leave:hover{background:#fff}
-  .zoomer{position:fixed;right:16px;bottom:16px;z-index:9;display:flex;flex-direction:column;gap:1px;
-    border-radius:11px;overflow:hidden;border:1px solid var(--latte-soft);box-shadow:var(--shadow-soft)}
-  .zoomer button{width:36px;height:34px;border:0;background:rgba(253,251,247,.94);color:var(--ink);
-    font:inherit;font-size:16px;cursor:pointer}
-  .zoomer button:hover{background:#fff}
-  .attrib{position:fixed;left:16px;bottom:6px;z-index:9;font-size:9.5px;color:var(--ink-40)}
-  .attrib a{color:inherit}
+/* ---------- modal ---------- */
+.modal{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:24px;
+  background:rgba(62,39,35,.3);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.modal__card{width:100%;max-width:520px;max-height:86vh;overflow-y:auto;padding:24px}
+.modal__card h3{margin:0 0 4px;font-family:var(--font-display);font-size:20px;font-weight:500}
+.modal__card>p{margin:0 0 16px;font-size:12.5px;color:var(--ink-60)}
 
-  :focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:6px}
-  @media(max-width:1120px){
-    .hud{grid-template-columns:1fr;grid-template-rows:auto auto 1fr auto;gap:10px;padding:10px}
-    .bar{flex-wrap:wrap;row-gap:9px}
-    .rail{grid-row:2;flex-direction:row;overflow-x:auto;scrollbar-width:none}
-    .rail::-webkit-scrollbar{display:none}
-    .kpi{flex:0 0 172px}
-    .legend{display:none}
-    .stage{grid-column:1;grid-row:3}
-    .record{grid-column:1;grid-row:4;align-self:end;max-height:56vh}
-    .zoomer{bottom:auto;top:74px}
-  }
-  @media(max-width:640px){.search{display:none}.bar__sub{display:none}}
-  @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms !important;transition-duration:.001ms !important}}
+@media(max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .side{flex-direction:row;align-items:center;flex-wrap:wrap;border-right:0;border-bottom:1px solid var(--latte-soft)}
+  .nav{flex-direction:row;flex-wrap:wrap}
+  .side__foot{margin-top:0;padding-top:0;border-top:0;width:100%}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .main{padding:16px}
+  table,thead,tbody,tr,td,th{display:block}
+  thead{display:none}
+  td{border-bottom:0;padding:3px 0}
+  tr{padding:11px 0;border-bottom:1px solid rgba(215,204,200,.5)}
+}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.001ms !important;transition-duration:.001ms !important}}
+
 </style>
 </head>
 <body>
 
-<div id="map"><div id="world">
-  <div id="tiles"></div>
-  <svg id="cad" xmlns="http://www.w3.org/2000/svg"></svg>
-  <div id="pins"></div>
-</div></div>
+<!-- ============================ AUTH ============================ -->
+<div class="authwrap" id="view-auth" hidden>
+  <div class="panel authcard anim">
+    <svg viewBox="0 0 40 40" style="width:40px;height:40px;color:var(--ink);opacity:.9" aria-hidden="true">
+      <circle cx="20" cy="20" r="18.4" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".34"/>
+      <g stroke="currentColor" stroke-width=".9" opacity=".16"><path d="M20 2.5V37.5"/><path d="M4.6 14.6h30.8"/><path d="M4.6 25.4h30.8"/></g>
+      <path d="M12.4 14.1 21.9 11.6 28.9 16.3 27.2 26.1 15.1 28.1Z" fill="currentColor" opacity=".88"/>
+    </svg>
+    <h2>Land Acquisition &amp; Management</h2>
+    <p>Sign in to file, track and review land acquisition applications. Public land records are viewable without an account.</p>
 
-<div class="demo" id="demo" hidden>
-  <div class="demo__card">
-    <p class="demo__t">Bakkarwala, West Delhi</p>
-    <p class="demo__s">Demonstration cadastre &middot; 28 individual khasra parcels on the public register.</p>
-    <button class="demo__b" id="demo-zoom">Zoom in to the register</button>
+    <div class="tabs" role="tablist">
+      <button id="tab-login" role="tab" aria-selected="true">Sign in</button>
+      <button id="tab-signup" role="tab" aria-selected="false">Create account</button>
+    </div>
+
+    <form id="form-login">
+      <div class="field"><label for="li-email">Email</label>
+        <input id="li-email" type="email" autocomplete="email" required /></div>
+      <div class="field"><label for="li-pass">Password</label>
+        <input id="li-pass" type="password" autocomplete="current-password" required /></div>
+      <button class="btn btn--primary" style="width:100%" id="li-go" type="submit">Sign in</button>
+    </form>
+
+    <form id="form-signup" hidden>
+      <div class="field"><label for="su-name">Full name</label>
+        <input id="su-name" type="text" autocomplete="name" required /></div>
+      <div class="field"><label for="su-phone">Phone (optional)</label>
+        <input id="su-phone" type="tel" autocomplete="tel" /></div>
+      <div class="field"><label for="su-email">Email</label>
+        <input id="su-email" type="email" autocomplete="email" required /></div>
+      <div class="field"><label for="su-pass">Password</label>
+        <input id="su-pass" type="password" autocomplete="new-password" minlength="6" required />
+        <small id="su-hint" style="color:var(--ink-40)">At least 6 characters.</small></div>
+      <button class="btn btn--primary" style="width:100%" id="su-go" type="submit">Create account</button>
+    </form>
+
+    <p id="auth-msg" style="margin:14px 0 0;font-size:12.5px;min-height:18px"></p>
+    <p style="margin:16px 0 0;padding-top:14px;border-top:1px solid var(--latte-soft);font-size:11.5px;color:var(--ink-40);line-height:1.55">
+      New accounts are always created with the <b>user</b> role. Editor and admin access is granted by an
+      administrator after the fact &mdash; it can never be chosen at sign-up.
+    </p>
   </div>
-  <span class="demo__pin"></span>
 </div>
 
-<canvas id="scene3d"></canvas>
-<button class="leave" id="leave3d">Zoom out to India</button>
-
-<div class="zoomer">
-  <button id="zin" title="Zoom in" aria-label="Zoom in">+</button>
-  <button id="zout" title="Zoom out" aria-label="Zoom out">&minus;</button>
-</div>
-<p class="attrib">Basemap &copy; OpenStreetMap contributors, &copy; CARTO &middot; Cadastre: Revenue Dept, GNCTD (demonstration data)</p>
-
-<div class="hud">
-  <header class="panel bar">
-    <div class="bar__mark">
-      <svg class="bar__seal" viewBox="0 0 40 40" aria-hidden="true">
+<!-- ============================ SHELL ============================ -->
+<div class="shell" id="view-app" hidden>
+  <aside class="side">
+    <div class="brand">
+      <svg viewBox="0 0 40 40" aria-hidden="true">
         <circle cx="20" cy="20" r="18.4" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".34"/>
         <g stroke="currentColor" stroke-width=".9" opacity=".16"><path d="M20 2.5V37.5"/><path d="M4.6 14.6h30.8"/><path d="M4.6 25.4h30.8"/></g>
         <path d="M12.4 14.1 21.9 11.6 28.9 16.3 27.2 26.1 15.1 28.1Z" fill="currentColor" opacity=".88"/>
       </svg>
-      <div>
-        <h1 class="bar__title">Bhu-Abhilekh &middot; Public Khasra Register</h1>
-        <p class="bar__sub">Revenue Village Bakkarwala, West Delhi &middot; Tehsil Punjabi Bagh &middot; 28 parcels on record</p>
-      </div>
+      <div><h1>Land Acquisition</h1><p>Management System</p></div>
     </div>
-    <div class="bar__tools">
-      <form class="search" id="search-form" role="search">
-        <span>Khasra</span><input id="q" placeholder="e.g. 412/1" autocomplete="off" />
-      </form>
-      <span class="viewchip" id="view-chip"><b>Public view</b> &middot; land facts only</span>
-      <button class="who__in" id="sign-in-btn">Official sign-in</button>
-      <div class="who" id="who-box" hidden>
-        <div><div class="who__name" id="who-name"></div><div class="who__role" id="who-role"></div></div>
-        <button class="who__out" id="sign-out">Sign out</button>
+
+    <nav class="nav" id="nav">
+      <button data-page="dashboard">Dashboard</button>
+      <button data-page="apply" data-role="user">New application</button>
+      <button data-page="mine" data-role="user">My applications</button>
+      <button data-page="review" data-role="editor,admin">Review queue</button>
+      <button data-page="records">Public records</button>
+      <button data-page="users" data-role="admin">Users &amp; roles</button>
+      <button data-page="audit" data-role="admin">Audit log</button>
+      <button data-page="profile">My profile</button>
+    </nav>
+
+    <div class="side__foot">
+      <div class="me">
+        <b id="me-name">&mdash;</b>
+        <span id="me-email"></span>
+        <span class="rolechip" id="me-role">user</span>
       </div>
+      <button class="btn btn--ghost btn--sm" id="btn-signout" style="margin-top:11px;width:100%">Sign out</button>
     </div>
-  </header>
-
-  <div class="rail" id="rail"></div>
-
-  <section class="panel legend" aria-label="Map legend">
-    <p class="legend__head">Colour shows acquisition status</p>
-    <ul class="legend__list" id="legend"></ul>
-  </section>
-
-  <div class="stage"><div id="notice"></div><div id="hint"></div><div id="exit"></div></div>
-
-  <aside class="panel record" id="record" style="display:none">
-    <header class="record__head">
-      <p class="record__eyebrow" id="r-eyebrow"></p>
-      <h2 class="record__no" id="r-khasra"></h2>
-      <p class="record__where" id="r-where"></p>
-      <div class="chips" id="r-chips"></div>
-    </header>
-    <div class="record__body" id="r-body"></div>
-    <div id="r-foot"></div>
   </aside>
+
+  <main class="main">
+    <div class="head">
+      <div><h2 id="page-title">Dashboard</h2><p id="page-sub"></p></div>
+      <div id="page-actions"></div>
+    </div>
+    <div id="page-body"></div>
+  </main>
 </div>
 
-<div class="modal" id="login-modal" hidden><div class="modal__card">
-  <h2 class="modal__title">Official sign-in</h2>
-  <p class="modal__sub">Editing the register is limited to authorised revenue officials. Citizens do not need an account to view land records.</p>
-  <form id="login-form">
-    <div class="field"><label for="lg-id">Email or user ID</label><input id="lg-id" type="text" autocomplete="username" placeholder="name@nic.in" required /></div>
-    <div class="field"><label for="lg-pw">Password</label><input id="lg-pw" type="password" autocomplete="current-password" required /></div>
-    <div class="modal__row"><button class="btn btn--primary" type="submit" id="lg-go">Sign in</button>
-      <button class="btn btn--ghost" type="button" id="lg-cancel">Cancel</button></div>
-  </form>
-  <p class="modal__msg" id="lg-msg" role="status"></p>
-  <p class="modal__foot" id="lg-foot"></p>
-</div></div>
+<div class="toasts" id="toasts"></div>
+<div id="modal-host"></div>
 
-<div class="modal" id="req-modal" hidden><div class="modal__card">
-  <h2 class="modal__title">Request owner details</h2>
-  <p class="modal__sub" id="rq-sub"></p>
-  <form id="req-form">
-    <div class="field"><label for="rq-email">Your email address</label><input id="rq-email" type="email" placeholder="you@example.com" required /></div>
-    <div class="field"><label for="rq-reason">Reason for the request</label>
-      <textarea id="rq-reason" placeholder="For example: I am purchasing this plot and need to verify the recorded owner before executing a sale deed." required></textarea></div>
-    <div class="modal__row"><button class="btn btn--primary" type="submit">Send to District Collector</button>
-      <button class="btn btn--ghost" type="button" id="rq-cancel">Cancel</button></div>
-  </form>
-  <p class="modal__msg" id="rq-msg" role="status"></p>
-  <p class="modal__foot">Owner names are personal data under the DPDP Act 2023. They are released only on a recorded, reasoned request, and every request is logged against your email.</p>
-</div></div>
-
-<script type="module">
-import * as THREE from "https://unpkg.com/three@0.169.0/build/three.module.js";
-
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+/* ===== supabase.js ===== */
 /* =====================================================================
-   1. CONFIG + ROSTER
-   Supabase is optional. Blank credentials run the file in demo mode with
-   the roster checked locally. The roster is a UI gate, not a security
-   boundary -- enforce the same list server-side with an RLS policy.
+   supabase.js -- client, auth, database, storage
+   Loaded before app.js. Exposes one global: window.LAMS.
+   No UI code lives here; no Supabase calls live in app.js.
    ===================================================================== */
-const SUPABASE_URL="", SUPABASE_ANON_KEY="";
+(function (global) {
+  "use strict";
 
-/* Google Maps Static API key for the satellite ground layer.
-   RESTRICT THIS before any public deployment: in the Cloud console limit it
-   to the Maps Static API and to your demo's HTTP referrer, and rotate it
-   afterwards. Anything in a single-file page is readable by every visitor.
-   Blank it out and the scene falls back to the plain ground. */
-const GOOGLE_MAPS_KEY="";
-let supabase=null;
-if(SUPABASE_URL&&SUPABASE_ANON_KEY){
-  const {createClient}=await import("https://esm.sh/@supabase/supabase-js@2");
-  supabase=createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
-}
-const OFFICIALS=[
-  {email:"tehsildar.pbagh@nic.in",userId:"DL-PBAGH-TEH",name:"Anjali Rawat",     designation:"Tehsildar, Punjabi Bagh", role:"editor", demoPassword:"pbagh@2026"},
-  {email:"sdm.punjabibagh@nic.in",userId:"DL-PBAGH-SDM",name:"Vikram Chaudhary", designation:"SDM, Punjabi Bagh",       role:"editor", demoPassword:"sdm@2026"},
-  {email:"patwari.bakkarwala@nic.in",userId:"DL-BKW-PAT", name:"Om Dutt Sharma",  designation:"Patwari, Bakkarwala halqa",role:"editor", demoPassword:"patwari@2026"},
-  {email:"audit.landrec@nic.in",  userId:"DL-AUDIT",     name:"Farah Siddiqui",  designation:"Land Records Audit Cell",  role:"viewer", demoPassword:"audit@2026"},
-];
-const findOfficial=(h)=>{const q=String(h||"").trim().toLowerCase();
-  return q?OFFICIALS.find((o)=>o.email.toLowerCase()===q||o.userId.toLowerCase()===q)||null:null;};
+  /* -------------------------------------------------------------------
+     CONFIGURATION -- the only place credentials belong.
+     Replace both values with your project's settings from
+     Supabase Dashboard -> Project Settings -> API.
+     Only the publishable/anon key may ever appear here. Never paste the
+     service_role key, the database password or the JWT secret: this file
+     is downloaded by every visitor.
+     ----------------------------------------------------------------- */
+  const SUPABASE_URL = "YOUR_SUPABASE_URL";
+  const SUPABASE_PUBLISHABLE_KEY = "YOUR_SUPABASE_PUBLISHABLE_KEY";
 
-/* =====================================================================
-   2. DATA
-   28 individual khasra parcels. Corners and edge midpoints are shared
-   between neighbours, so the parcels tessellate the way a real cadastral
-   sheet does: irregular, but no gaps and no overlaps.
-   ===================================================================== */
-const VILLAGE={name:"Bakkarwala",tehsil:"Punjabi Bagh",district:"West Delhi",state:"NCT of Delhi"};
-const ACQ_PROJECT="Urban Extension Road-II (UER-II), Package 3";
+  const CONFIGURED =
+    SUPABASE_URL.indexOf("YOUR_") !== 0 && SUPABASE_PUBLISHABLE_KEY.indexOf("YOUR_") !== 0;
 
-const STAGE={
-  not_acquired:        {label:"Not under acquisition", color:"#B9C4A8", hint:"No acquisition notification affects this plot."},
-  proposal_submitted:  {label:"Proposal submitted",    color:"#BCADA0", hint:"Alignment proposed. No notification issued yet."},
-  notification_issued: {label:"Notification issued",   color:"#D9A441", hint:"Notified under s.11. Objections open under s.15."},
-  award_declared:      {label:"Award declared",        color:"#C2703E", hint:"Award passed under s.30. Payment pending."},
-  possession_taken:    {label:"Possession taken",      color:"#6E8C63", hint:"Compensation paid, possession vested in the project."},
-};
-const STAGE_ORDER=["not_acquired","proposal_submitted","notification_issued","award_declared","possession_taken"];
+  const client = CONFIGURED
+    ? global.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+    : null;
 
-const inr=new Intl.NumberFormat("en-IN",{style:"currency",currency:"INR",maximumFractionDigits:0});
-const rupees=(v)=>v>=1e7?"\u20b9"+(v/1e7).toFixed(2)+" Cr":v>=1e5?"\u20b9"+(v/1e5).toFixed(2)+" L":inr.format(v);
-const num=(v)=>v.toLocaleString("en-IN");
+  const BUCKET = "land-documents";
+  const APP_STATUSES = ["draft", "submitted", "under_review", "verified", "rejected"];
+  const DOC_STATUSES = ["pending", "verified", "rejected"];
+  const ROLES = ["user", "editor", "admin"];
 
-/* Connaught Place, the conventional zero point for "distance from Delhi". */
-const CP=[77.2167,28.6315], METRO=[77.0653,28.6822];
-function km(a,b){
-  const R=6371, dLat=(b[1]-a[1])*Math.PI/180, dLng=(b[0]-a[0])*Math.PI/180;
-  const s=Math.sin(dLat/2)**2+Math.cos(a[1]*Math.PI/180)*Math.cos(b[1]*Math.PI/180)*Math.sin(dLng/2)**2;
-  return R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s));
-}
-/* Bakkarwala sits on the Delhi alluvial plain; local relief is a couple of
-   metres, so elevation is quoted from the plain datum with a tolerance. */
-const elevation=(p)=>218+Math.round(((p.c[0]*7919+p.c[1]*104729)%1)*6);
-
-/* =====================================================================
-   3. MAP -- 2D slippy map, used only for the national view
-   The camera is a world-pixel centre plus a LOG zoom; interpolating
-   log2(scale) rather than scale is what makes the descent read as a zoom
-   rather than a lurch. Once the descent finishes, this layer hands over to
-   the 3D cadastre and stops taking input.
-   ===================================================================== */
-const CAD={"parcels":[{"id":"KH-401","khasra":"401","khata":"KH/112","owner":"Dharambir Singh","coOwners":true,"landUse":"Agricultural","areaSqm":3929.7,"bigha":4.66,"circleRate":5560,"circleValue":21849402,"marketValue":27967000,"stage":"not_acquired","encumbrance":"Nil","verification":"verified","mutation":"02-01-2023","ringM":[[-199.97,-146.46],[-164.95,-140.24],[-129.78,-145.54],[-130.68,-117.48],[-126.68,-89.69],[-159.58,-81.9],[-193.3,-84.38],[-196.13,-115.47]],"c":[77.038335,28.6639656]},{"id":"KH-402","khasra":"402/1","khata":"KH/112","owner":"Om Prakash Nagar","coOwners":false,"landUse":"Agricultural","areaSqm":3338.6,"bigha":3.96,"circleRate":5560,"circleValue":18562691,"marketValue":23760000,"stage":"award_declared","encumbrance":"Nil","verification":"verified","mutation":"03-02-2024","ringM":[[-129.78,-145.54],[-97.55,-139.29],[-65.23,-145.03],[-63.94,-115.93],[-73.92,-88.56],[-100.31,-88.96],[-126.68,-89.69],[-130.68,-117.48]],"c":[77.0389914,28.6639552]},{"id":"KH-403","khasra":"403/2","khata":"KH/112","owner":"Sushila Devi","coOwners":false,"landUse":"Agricultural","areaSqm":3448.2,"bigha":4.09,"circleRate":5560,"circleValue":19171958,"marketValue":24540000,"stage":"proposal_submitted","encumbrance":"Nil","verification":"verified","mutation":"04-03-2025","ringM":[[-65.23,-145.03],[-36.66,-145.0],[-8.36,-141.15],[-4.72,-114.42],[-4.35,-87.45],[-39.15,-87.32],[-73.92,-88.56],[-63.94,-115.93]],"c":[77.0396208,28.6639615]},{"id":"KH-404","khasra":"404min","khata":"KH/113","owner":"Rajbir Singh Dagar","coOwners":false,"landUse":"Abadi / residential","areaSqm":3698.9,"bigha":4.39,"circleRate":23280,"circleValue":86109803,"marketValue":110221000,"stage":"not_acquired","encumbrance":"Nil","verification":"pending","mutation":"05-04-2023","ringM":[[-193.3,-84.38],[-159.58,-81.9],[-126.68,-89.69],[-128.06,-59.83],[-127.58,-29.94],[-164.38,-30.94],[-200.26,-39.2],[-201.24,-62.48]],"c":[77.038335,28.6644629]},{"id":"KH-405","khasra":"405","khata":"KH/113","owner":"Mohd. Salim Qureshi","coOwners":false,"landUse":"Vacant / banjar","areaSqm":2924.5,"bigha":3.47,"circleRate":5560,"circleValue":16260080,"marketValue":20813000,"stage":"notification_issued","encumbrance":"Mortgage recorded","verification":"verified","mutation":"06-05-2024","ringM":[[-126.68,-89.69],[-100.31,-88.96],[-73.92,-88.56],[-77.55,-58.93],[-76.12,-29.12],[-101.77,-34.61],[-127.58,-29.94],[-128.06,-59.83]],"c":[77.0389609,28.6644614]},{"id":"KH-406","khasra":"406/1","khata":"KH/113","owner":"Kamlesh Yadav","coOwners":true,"landUse":"Agricultural","areaSqm":3575.8,"bigha":4.24,"circleRate":5560,"circleValue":19881665,"marketValue":25449000,"stage":"not_acquired","encumbrance":"Civil suit pending","verification":"objection","mutation":"07-06-2025","ringM":[[-73.92,-88.56],[-39.15,-87.32],[-4.35,-87.45],[-7.47,-62.93],[-12.43,-38.72],[-44.64,-36.39],[-76.12,-29.12],[-77.55,-58.93]],"c":[77.0395705,28.6644504]},{"id":"KH-407","khasra":"407/2","khata":"KH/114","owner":"Ranbir Solanki","coOwners":false,"landUse":"Agricultural","areaSqm":3585.7,"bigha":4.25,"circleRate":5560,"circleValue":19936704,"marketValue":25519000,"stage":"not_acquired","encumbrance":"Nil","verification":"verified","mutation":"08-07-2023","ringM":[[5.78,-145.04],[38.41,-149.1],[71.2,-146.65],[70.32,-120.26],[76.58,-94.6],[41.87,-91.18],[7.47,-97.02],[4.59,-120.96]],"c":[77.0404047,28.6639166]},{"id":"KH-408","khasra":"408min","khata":"KH/114","owner":"Phool Kumari","coOwners":false,"landUse":"Agricultural","areaSqm":2859.0,"bigha":3.39,"circleRate":5560,"circleValue":15895967,"marketValue":20347000,"stage":"proposal_submitted","encumbrance":"Nil","verification":"verified","mutation":"09-08-2024","ringM":[[71.2,-146.65],[101.18,-146.94],[131.15,-146.19],[127.54,-120.65],[123.43,-95.18],[100.0,-95.26],[76.58,-94.6],[70.32,-120.26]],"c":[77.0410256,28.6639156]},{"id":"KH-409","khasra":"409","khata":"KH/114","owner":"Satpal Rana","coOwners":false,"landUse":"Abadi / residential","areaSqm":3207.0,"bigha":3.8,"circleRate":23280,"circleValue":74658132,"marketValue":95562000,"stage":"possession_taken","encumbrance":"Nil","verification":"verified","mutation":"10-09-2025","ringM":[[131.15,-146.19],[163.51,-137.24],[196.98,-139.92],[192.65,-114.02],[186.74,-88.42],[155.03,-91.26],[123.43,-95.18],[127.54,-120.65]],"c":[77.0416343,28.6639525]},{"id":"KH-410","khasra":"410/1","khata":"KH/115","owner":"Jaiveer Singh Dagar","coOwners":false,"landUse":"Vacant / banjar","areaSqm":4166.3,"bigha":4.94,"circleRate":5560,"circleValue":23164649,"marketValue":29651000,"stage":"not_acquired","encumbrance":"Nil","verification":"pending","mutation":"11-10-2023","ringM":[[7.47,-97.02],[41.87,-91.18],[76.58,-94.6],[72.34,-60.93],[68.14,-27.25],[37.8,-27.23],[7.61,-30.25],[9.85,-63.64]],"c":[77.0404116,28.6644474]},{"id":"KH-411","khasra":"411/2","khata":"KH/115","owner":"Munesh Devi","coOwners":true,"landUse":"Agricultural","areaSqm":3662.8,"bigha":4.34,"circleRate":5560,"circleValue":20365153,"marketValue":26067000,"stage":"not_acquired","encumbrance":"Nil","verification":"verified","mutation":"12-11-2024","ringM":[[123.43,-95.18],[155.03,-91.26],[186.74,-88.42],[192.32,-61.9],[192.99,-34.8],[159.01,-37.77],[125.19,-42.17],[119.7,-68.52]],"c":[77.0416053,28.6644161]},{"id":"KH-412","khasra":"412min","khata":"KH/115","owner":"Naresh Kumar Tanwar","coOwners":false,"landUse":"Agricultural","areaSqm":3985.4,"bigha":4.73,"circleRate":5560,"circleValue":22159023,"marketValue":28364000,"stage":"award_declared","encumbrance":"Mortgage recorded","verification":"objection","mutation":"13-12-2025","ringM":[[-197.43,-29.44],[-166.37,-26.65],[-135.58,-21.75],[-131.21,9.0],[-131.31,40.04],[-161.04,37.49],[-190.85,36.15],[-196.15,3.56]],"c":[77.0383236,28.6650544]},{"id":"KH-413","khasra":"413","khata":"KH/116","owner":"Bimla Devi","coOwners":false,"landUse":"Agricultural","areaSqm":3260.0,"bigha":3.87,"circleRate":5560,"circleValue":18125535,"marketValue":23201000,"stage":"not_acquired","encumbrance":"Civil suit pending","verification":"verified","mutation":"14-01-2023","ringM":[[-135.58,-21.75],[-104.21,-17.12],[-72.62,-14.41],[-79.86,11.27],[-76.33,37.72],[-103.6,44.06],[-131.31,40.04],[-131.21,9.0]],"c":[77.0389318,28.6650997]},{"id":"KH-414","khasra":"414/1","khata":"KH/116","owner":"Hoshiyar Singh","coOwners":false,"landUse":"Abadi / residential","areaSqm":3719.8,"bigha":4.41,"circleRate":23280,"circleValue":86596501,"marketValue":110844000,"stage":"possession_taken","encumbrance":"Nil","verification":"verified","mutation":"15-02-2024","ringM":[[-72.62,-14.41],[-36.14,-18.07],[0.44,-15.68],[0.6,6.54],[-7.85,27.09],[-41.87,33.84],[-76.33,37.72],[-79.86,11.27]],"c":[77.0395986,28.6650767]},{"id":"KH-415","khasra":"415/2","khata":"KH/116","owner":"Rekha Sharma","coOwners":false,"landUse":"Vacant / banjar","areaSqm":3220.9,"bigha":3.82,"circleRate":5560,"circleValue":17908470,"marketValue":22923000,"stage":"notification_issued","encumbrance":"Nil","verification":"verified","mutation":"16-03-2025","ringM":[[-190.85,36.15],[-161.04,37.49],[-131.31,40.04],[-129.78,65.86],[-126.26,91.48],[-160.19,85.35],[-194.21,90.89],[-194.15,63.42]],"c":[77.038352,28.6655735]},{"id":"KH-416","khasra":"416min","khata":"KH/117","owner":"Ishwar Chand","coOwners":true,"landUse":"Agricultural","areaSqm":3695.7,"bigha":4.38,"circleRate":5560,"circleValue":20548291,"marketValue":26302000,"stage":"not_acquired","encumbrance":"Nil","verification":"pending","mutation":"17-04-2023","ringM":[[-76.33,37.72],[-41.87,33.84],[-7.85,27.09],[-6.34,58.97],[-11.47,90.47],[-38.05,93.64],[-64.65,90.76],[-70.4,64.22]],"c":[77.0395944,28.6655578]},{"id":"KH-417","khasra":"417","khata":"KH/117","owner":"Krishan Pal Gujjar","coOwners":false,"landUse":"Agricultural","areaSqm":3992.0,"bigha":4.74,"circleRate":5560,"circleValue":22195796,"marketValue":28411000,"stage":"award_declared","encumbrance":"Nil","verification":"verified","mutation":"18-05-2024","ringM":[[-194.21,90.89],[-160.19,85.35],[-126.26,91.48],[-128.65,121.9],[-124.58,152.13],[-159.26,146.9],[-193.68,153.67],[-189.8,122.24]],"c":[77.0383663,28.6660831]},{"id":"KH-418","khasra":"418/1","khata":"KH/117","owner":"Santosh Devi","coOwners":false,"landUse":"Agricultural","areaSqm":3866.3,"bigha":4.59,"circleRate":5560,"circleValue":21496481,"marketValue":27515000,"stage":"proposal_submitted","encumbrance":"Nil","verification":"objection","mutation":"19-06-2025","ringM":[[-126.26,91.48],[-95.52,86.12],[-64.65,90.76],[-70.11,122.35],[-70.3,154.41],[-97.59,156.79],[-124.58,152.13],[-128.65,121.9]],"c":[77.0390048,28.6660959]},{"id":"KH-419","khasra":"419/2","khata":"KH/118","owner":"Ved Prakash Dagar","coOwners":false,"landUse":"Abadi / residential","areaSqm":3497.2,"bigha":4.15,"circleRate":23280,"circleValue":81415168,"marketValue":104211000,"stage":"not_acquired","encumbrance":"Mortgage recorded","verification":"verified","mutation":"20-07-2023","ringM":[[-64.65,90.76],[-38.05,93.64],[-11.47,90.47],[-13.97,120.54],[-14.36,150.71],[-41.97,158.02],[-70.3,154.41],[-70.11,122.35]],"c":[77.0395842,28.6661014]},{"id":"KH-420","khasra":"420min","khata":"KH/118","owner":"Anita Rani","coOwners":false,"landUse":"Vacant / banjar","areaSqm":3102.6,"bigha":3.68,"circleRate":5560,"circleValue":17250667,"marketValue":22081000,"stage":"notification_issued","encumbrance":"Civil suit pending","verification":"verified","mutation":"21-08-2024","ringM":[[15.29,-15.11],[40.45,-20.99],[66.2,-23.0],[74.87,5.27],[74.74,34.84],[41.03,32.31],[7.58,27.44],[15.11,6.83]],"c":[77.0404291,28.6650534]},{"id":"KH-421","khasra":"421","khata":"KH/118","owner":"Balwant Singh","coOwners":true,"landUse":"Agricultural","areaSqm":3175.0,"bigha":3.77,"circleRate":5560,"circleValue":17653179,"marketValue":22596000,"stage":"not_acquired","encumbrance":"Nil","verification":"verified","mutation":"22-09-2025","ringM":[[66.2,-23.0],[95.01,-24.76],[123.87,-24.1],[126.24,7.51],[129.01,39.08],[102.16,33.32],[74.74,34.84],[74.87,5.27]],"c":[77.0410137,28.6650541]},{"id":"KH-422","khasra":"422/1","khata":"KH/119","owner":"Shakuntala Devi","coOwners":false,"landUse":"Agricultural","areaSqm":4431.2,"bigha":5.26,"circleRate":5560,"circleValue":24637677,"marketValue":31536000,"stage":"not_acquired","encumbrance":"Nil","verification":"pending","mutation":"23-10-2023","ringM":[[123.87,-24.1],[157.24,-25.48],[190.54,-27.94],[191.76,4.57],[201.13,35.72],[165.26,41.46],[129.01,39.08],[126.24,7.51]],"c":[77.0416445,28.6650571]},{"id":"KH-423","khasra":"423/2","khata":"KH/119","owner":"Tej Pal Nagar","coOwners":false,"landUse":"Agricultural","areaSqm":3654.4,"bigha":4.34,"circleRate":5560,"circleValue":20318713,"marketValue":26008000,"stage":"proposal_submitted","encumbrance":"Nil","verification":"verified","mutation":"24-11-2024","ringM":[[7.58,27.44],[41.03,32.31],[74.74,34.84],[69.19,58.46],[64.34,82.24],[37.95,92.13],[10.37,97.9],[6.44,62.77]],"c":[77.0403988,28.6655481]},{"id":"KH-424","khasra":"424min","khata":"KH/119","owner":"Gyan Chand Dagar","coOwners":false,"landUse":"Abadi / residential","areaSqm":2973.2,"bigha":3.53,"circleRate":23280,"circleValue":69216250,"marketValue":88597000,"stage":"possession_taken","encumbrance":"Nil","verification":"objection","mutation":"25-12-2025","ringM":[[74.74,34.84],[102.16,33.32],[129.01,39.08],[120.78,64.29],[123.44,90.68],[93.18,91.47],[64.34,82.24],[69.19,58.46]],"c":[77.0409941,28.6655551]},{"id":"KH-425","khasra":"425","khata":"KH/120","owner":"Prem Wati","coOwners":false,"landUse":"Vacant / banjar","areaSqm":3689.3,"bigha":4.38,"circleRate":5560,"circleValue":20512382,"marketValue":26256000,"stage":"not_acquired","encumbrance":"Nil","verification":"verified","mutation":"26-01-2023","ringM":[[129.01,39.08],[165.26,41.46],[201.13,35.72],[201.23,60.23],[198.68,84.62],[161.01,87.07],[123.44,90.68],[120.78,64.29]],"c":[77.0416643,28.665565]},{"id":"KH-426","khasra":"426/1","khata":"KH/120","owner":"Surender Kumar Dagar","coOwners":true,"landUse":"Agricultural","areaSqm":3119.9,"bigha":3.7,"circleRate":5560,"circleValue":17346823,"marketValue":22204000,"stage":"not_acquired","encumbrance":"Mortgage recorded","verification":"verified","mutation":"27-02-2024","ringM":[[10.37,97.9],[37.95,92.13],[64.34,82.24],[60.15,117.59],[62.8,153.09],[37.51,148.16],[12.32,153.56],[6.81,125.88]],"c":[77.040374,28.6660898]},{"id":"KH-427","khasra":"427/2","khata":"KH/120","owner":"Raj Kumari","coOwners":false,"landUse":"Agricultural","areaSqm":3747.8,"bigha":4.45,"circleRate":5560,"circleValue":20837647,"marketValue":26672000,"stage":"award_declared","encumbrance":"Civil suit pending","verification":"verified","mutation":"02-03-2025","ringM":[[64.34,82.24],[93.18,91.47],[123.44,90.68],[130.06,116.52],[128.57,143.16],[94.87,142.73],[62.8,153.09],[60.15,117.59]],"c":[77.0409693,28.6660527]},{"id":"KH-428","khasra":"428min","khata":"KH/121","owner":"Mahender Singh","coOwners":false,"landUse":"Agricultural","areaSqm":4019.5,"bigha":4.77,"circleRate":5560,"circleValue":22348513,"marketValue":28606000,"stage":"not_acquired","encumbrance":"Nil","verification":"pending","mutation":"03-04-2023","ringM":[[123.44,90.68],[161.01,87.07],[198.68,84.62],[197.15,115.07],[193.83,145.37],[161.1,147.32],[128.57,143.16],[130.06,116.52]],"c":[77.0416558,28.6660441]}],"roads":[{"n":"Village link road","ring":[[-7.5,-166.5],[7.5,-166.5],[7.5,166.5],[-7.5,166.5]]},{"n":"Field road","ring":[[-213.5,-34.5],[213.5,-34.5],[213.5,-21.5],[-213.5,-21.5]]},{"n":"Northern approach","ring":[[-213.5,166.5],[213.5,166.5],[213.5,177.5],[-213.5,177.5]]}],"pond":[[-79.17,62.5],[-81.98,68.64],[-90.44,70.55],[-96.27,70.67],[-100.5,74.05],[-108.23,77.44],[-115.52,74.51],[-115.51,67.48],[-111.91,62.5],[-112.22,58.62],[-113.59,52.03],[-108.8,46.47],[-100.5,47.86],[-95.71,53.24],[-92.37,56.0],[-85.27,57.45]],"canal":[[223.0,-176.5],[227.21,-141.2],[230.97,-105.9],[233.87,-70.6],[235.59,-35.3],[235.96,0.0],[234.93,35.3],[232.61,70.6],[229.25,105.9],[225.22,141.2],[220.95,176.5],[233.95,176.5],[238.22,141.2],[242.25,105.9],[245.61,70.6],[247.93,35.3],[248.96,0.0],[248.59,-35.3],[246.87,-70.6],[243.97,-105.9],[240.21,-141.2],[236.0,-176.5]],"buildings":[{"x":-224.76,"y":187.91,"w":9.72,"d":9.32,"h":6.34,"r":0.056},{"x":-223.6,"y":203.98,"w":10.41,"d":8.6,"h":7.63,"r":0.059},{"x":-222.46,"y":219.69,"w":12.77,"d":12.39,"h":6.98,"r":-0.018},{"x":-206.45,"y":189.01,"w":12.81,"d":9.76,"h":4.87,"r":0.012},{"x":-207.38,"y":203.33,"w":11.58,"d":10.78,"h":6.64,"r":-0.057},{"x":-208.2,"y":220.67,"w":8.51,"d":9.32,"h":8.31,"r":-0.066},{"x":-190.72,"y":189.17,"w":8.93,"d":11.15,"h":6.38,"r":-0.045},{"x":-192.13,"y":203.94,"w":9.3,"d":8.31,"h":5.97,"r":0.08},{"x":-191.76,"y":219.05,"w":8.48,"d":8.11,"h":4.73,"r":0.037},{"x":-174.19,"y":188.05,"w":11.9,"d":11.04,"h":7.02,"r":0.023},{"x":-176.05,"y":203.65,"w":10.31,"d":12.9,"h":7.98,"r":0.037},{"x":-174.96,"y":221.77,"w":9.95,"d":12.74,"h":5.73,"r":0.047},{"x":-160.93,"y":189.09,"w":9.45,"d":12.79,"h":7.64,"r":-0.076},{"x":-160.04,"y":205.71,"w":10.71,"d":9.71,"h":6.61,"r":0.044},{"x":-144.65,"y":187.38,"w":9.77,"d":11.24,"h":7.02,"r":-0.094},{"x":-143.93,"y":204.15,"w":9.2,"d":10.1,"h":5.14,"r":-0.075},{"x":-143.02,"y":221.8,"w":11.42,"d":9.98,"h":5.3,"r":-0.07},{"x":-127.56,"y":203.79,"w":9.57,"d":12.72,"h":6.75,"r":0.068},{"x":-127.05,"y":221.88,"w":10.57,"d":9.33,"h":6.92,"r":0.051},{"x":-111.03,"y":187.03,"w":12.89,"d":10.35,"h":8.37,"r":0.036},{"x":-110.22,"y":205.72,"w":10.0,"d":12.88,"h":8.29,"r":-0.053},{"x":-111.97,"y":219.6,"w":9.8,"d":11.19,"h":6.56,"r":-0.005},{"x":-95.26,"y":187.56,"w":11.14,"d":8.77,"h":8.04,"r":0.09},{"x":-94.49,"y":205.11,"w":11.98,"d":11.2,"h":4.56,"r":-0.025},{"x":-96.59,"y":221.22,"w":12.99,"d":8.09,"h":5.13,"r":0.07},{"x":-79.28,"y":189.87,"w":9.9,"d":12.82,"h":6.42,"r":0.029},{"x":-80.74,"y":221.2,"w":9.67,"d":9.31,"h":4.38,"r":0.019},{"x":122.49,"y":187.88,"w":10.71,"d":9.79,"h":8.38,"r":-0.062},{"x":122.03,"y":204.82,"w":10.4,"d":10.11,"h":7.69,"r":0.08},{"x":124.99,"y":219.51,"w":10.58,"d":8.9,"h":6.52,"r":-0.067},{"x":139.54,"y":189.65,"w":11.22,"d":8.01,"h":5.81,"r":-0.026},{"x":138.46,"y":204.83,"w":8.63,"d":12.93,"h":6.28,"r":0.075},{"x":139.14,"y":220.85,"w":11.24,"d":9.74,"h":8.11,"r":-0.076},{"x":156.49,"y":189.05,"w":10.28,"d":10.93,"h":4.55,"r":0.056},{"x":154.94,"y":221.26,"w":9.13,"d":9.63,"h":6.38,"r":-0.034},{"x":172.17,"y":189.57,"w":10.02,"d":8.88,"h":7.67,"r":-0.056},{"x":171.05,"y":205.36,"w":10.05,"d":12.02,"h":5.84,"r":-0.069},{"x":171.97,"y":219.38,"w":9.34,"d":12.18,"h":5.58,"r":0.068},{"x":76.44,"y":-82.12,"w":9.17,"d":12.86,"h":6.61,"r":-0.075},{"x":77.37,"y":-66.8,"w":8.11,"d":11.58,"h":7.1,"r":-0.033},{"x":94.77,"y":-81.27,"w":12.24,"d":12.76,"h":7.07,"r":0.009},{"x":93.06,"y":-67.01,"w":12.61,"d":11.62,"h":4.25,"r":0.012},{"x":109.0,"y":-82.07,"w":10.07,"d":11.89,"h":6.25,"r":0.078},{"x":108.11,"y":-67.34,"w":8.6,"d":12.26,"h":5.36,"r":-0.096}],"extent":{"w":387.0,"h":293.0}};
-const PARCELS=CAD.parcels;
-
-const Z_REF=18, TS=256, WORLDPX=TS*Math.pow(2,Z_REF);
-const px=(lng)=>(lng+180)/360*WORLDPX;
-const py=(lat)=>{const r=lat*Math.PI/180;return (1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*WORLDPX;};
-
-const VILLAGE_LL=[77.0400,28.6650];
-const VILLAGE_CX=px(VILLAGE_LL[0]), VILLAGE_CY=py(VILLAGE_LL[1]);
-const OX=VILLAGE_CX-TS*8, OY=VILLAGE_CY-TS*8;
-
-const worldEl=document.getElementById("world");
-const tilesEl=document.getElementById("tiles");
-const mapEl=document.getElementById("map");
-const demoEl=document.getElementById("demo");
-document.getElementById("cad").remove();
-document.getElementById("pins").remove();
-
-const view={cx:VILLAGE_CX,cy:VILLAGE_CY,lz:0};
-const goal={cx:VILLAGE_CX,cy:VILLAGE_CY,lz:0};
-const state={sel:null,hov:null,user:null,mode:"map"};
-const scaleOf=(lz)=>Math.pow(2,lz);
-
-const INDIA={lng:[68.0,97.5],lat:[7.5,35.5]};
-function viewIndia(){
-  const w=px(INDIA.lng[1])-px(INDIA.lng[0]), hh=py(INDIA.lat[0])-py(INDIA.lat[1]);
-  goal.cx=(px(INDIA.lng[0])+px(INDIA.lng[1]))/2;
-  goal.cy=(py(INDIA.lat[0])+py(INDIA.lat[1]))/2;
-  goal.lz=Math.log2(Math.min(innerWidth*0.82/w, innerHeight*0.86/hh));
-}
-const layers=new Map(); let activeZ=null;
-function updateTiles(){
-  const s=scaleOf(view.lz), tz=Math.max(2,Math.min(19,Math.round(Z_REF+view.lz)));
-  const tw=TS*Math.pow(2,Z_REF-tz), n=Math.pow(2,tz);
-  const hw=innerWidth/2/s, hh=innerHeight/2/s;
-  const x0=Math.floor((view.cx-hw)/tw), x1=Math.floor((view.cx+hw)/tw);
-  const y0=Math.floor((view.cy-hh)/tw), y1=Math.floor((view.cy+hh)/tw);
-  if((x1-x0+1)*(y1-y0+1)>260) return;
-  let L=layers.get(tz);
-  if(!L){const el=document.createElement("div");el.style.cssText="position:absolute;left:0;top:0";
-    tilesEl.appendChild(el);L={el:el,tiles:new Map()};layers.set(tz,L);}
-  if(activeZ!==tz){
-    activeZ=tz;
-    layers.forEach((l,z)=>{l.el.style.zIndex=(z===tz)?"2":"1";});
-    for(const [z,l] of layers){ if(z===tz) continue;
-      clearTimeout(l.killer); l.killer=setTimeout(()=>{l.el.remove();layers.delete(z);},700); }
-    clearTimeout(L.killer);
+  /* Every Supabase call funnels through here so no error is ever
+     swallowed. Postgres error 42501 and HTTP 403 mean RLS refused the
+     operation -- that is the policy doing its job, not a bug to code
+     around, so it gets a message that says so. */
+  function fail(error, whatFailed) {
+    const code = error && (error.code || error.statusCode);
+    if (code === "42501" || code === 42501 || code === 403) {
+      return new Error(
+        whatFailed +
+          ": the database refused this under its row-level security policy. " +
+          "Your account's role is not permitted to perform it."
+      );
+    }
+    if (code === "PGRST116") return new Error(whatFailed + ": no matching row, or it is not visible to you.");
+    if (error && error.message && /Failed to fetch|NetworkError/i.test(error.message))
+      return new Error(whatFailed + ": could not reach Supabase. Check your connection.");
+    return new Error(whatFailed + ": " + ((error && error.message) || "unknown error"));
   }
-  for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){
-    if(y<0||y>=n) continue;
-    const xx=((x%n)+n)%n, key=xx+"/"+y;
-    if(L.tiles.has(key)) continue;
-    const img=new Image(); img.crossOrigin="anonymous"; img.alt="";
-    img.style.cssText="position:absolute;display:block;left:"+(x*tw-OX)+"px;top:"+(y*tw-OY)+
-      "px;width:"+tw+"px;height:"+tw+"px";
-    img.onerror=()=>{img.style.visibility="hidden";};
-    img.src="https://basemaps.cartocdn.com/rastertiles/voyager/"+tz+"/"+xx+"/"+y+".png";
-    L.el.appendChild(img); L.tiles.set(key,img);
+
+  function guard() {
+    if (!client)
+      throw new Error(
+        "Supabase is not configured. Open supabase.js and set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY."
+      );
   }
-}
-let drag=null;
-mapEl.addEventListener("pointerdown",(e)=>{if(e.button!==0||state.mode!=="map")return;
-  drag={x:e.clientX,y:e.clientY,cx:goal.cx,cy:goal.cy};mapEl.classList.add("dragging");});
-addEventListener("pointermove",(e)=>{
-  if(!drag)return;
-  const s=scaleOf(view.lz);
-  goal.cx=drag.cx-(e.clientX-drag.x)/s; goal.cy=drag.cy-(e.clientY-drag.y)/s;
-  view.cx=goal.cx; view.cy=goal.cy;
-});
-addEventListener("pointerup",()=>{if(drag)mapEl.classList.remove("dragging");drag=null;});
-function zoomAbout(sx,sy,d){
-  const s0=scaleOf(goal.lz);
-  const wx=goal.cx+(sx-innerWidth/2)/s0, wy=goal.cy+(sy-innerHeight/2)/s0;
-  goal.lz=Math.min(0.5,Math.max(-14,goal.lz+d));
-  const s1=scaleOf(goal.lz);
-  goal.cx=wx-(sx-innerWidth/2)/s1; goal.cy=wy-(sy-innerHeight/2)/s1;
-}
-mapEl.addEventListener("wheel",(e)=>{
-  if(state.mode!=="map")return;
-  e.preventDefault(); zoomAbout(e.clientX,e.clientY,-e.deltaY*0.0022);
-},{passive:false});
-document.getElementById("zin").onclick=()=>zoomAbout(innerWidth/2,innerHeight/2,0.6);
-document.getElementById("zout").onclick=()=>zoomAbout(innerWidth/2,innerHeight/2,-0.6);
 
-let mapLast=performance.now();
-function mapLoop(now){
-  requestAnimationFrame(mapLoop);
-  const dt=Math.min((now-mapLast)/1000,1/30); mapLast=now;
-  const k=1-Math.exp(-6.5*dt);
-  view.cx+=(goal.cx-view.cx)*k; view.cy+=(goal.cy-view.cy)*k; view.lz+=(goal.lz-view.lz)*k;
-  const s=scaleOf(view.lz);
-  worldEl.style.transform="translate("+(innerWidth/2-(view.cx-OX)*s).toFixed(2)+"px,"+
-    (innerHeight/2-(view.cy-OY)*s).toFixed(2)+"px) scale("+s.toFixed(6)+")";
-  if(state.mode==="map"){
-    demoEl.hidden=false;
-    demoEl.style.left=(innerWidth/2+(VILLAGE_CX-view.cx)*s).toFixed(1)+"px";
-    demoEl.style.top =(innerHeight/2+(VILLAGE_CY-view.cy)*s).toFixed(1)+"px";
-    updateTiles();
-  }else demoEl.hidden=true;
-}
-viewIndia(); view.cx=goal.cx; view.cy=goal.cy; view.lz=goal.lz;
-requestAnimationFrame(mapLoop);
+  /* ===================================================================
+     AUTH
+     Supabase Auth owns credentials end to end. We never see, hash or
+     store a password, and we never keep the session in localStorage
+     ourselves -- the client library manages it.
+     =================================================================== */
+  const auth = {
+    async signUp(email, password, fullName, phone) {
+      guard();
+      /* Role is deliberately absent from this metadata. A signing-up user
+         must not be able to nominate their own privilege level; the
+         backend assigns 'user' and only an admin can change it later. */
+      const { data, error } = await client.auth.signUp({
+        email: email,
+        password: password,
+        options: { data: { full_name: fullName, phone: phone || null } },
+      });
+      if (error) throw fail(error, "Could not create the account");
+      return data;
+    },
 
-/* =====================================================================
-   4. THE 3D CADASTRE
-   Entered from the demo marker and locked: the wheel does nothing here,
-   and the only way back out is the Zoom out control. Parcels are extruded
-   from the same irregular rings the register stores, with the road
-   corridors, the village pond and the canal drawn from the same survey
-   frame -- a plot only means something next to what it adjoins.
-   ===================================================================== */
-const SU=1/10;                                   // 1 scene unit = 10 metres
-const DEPTH=0.34;
-const STAGE_COL={not_acquired:"#B9C4A8",proposal_submitted:"#BCADA0",
-  notification_issued:"#D9A441",award_declared:"#C2703E",possession_taken:"#6E8C63"};
+    async signIn(email, password) {
+      guard();
+      const { data, error } = await client.auth.signInWithPassword({ email: email, password: password });
+      if (error) throw fail(error, "Sign-in failed");
+      return data;
+    },
 
-const cv=document.getElementById("scene3d");
-const renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true,alpha:true,powerPreference:"high-performance"});
-renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
-renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.18;
+    async signOut() {
+      guard();
+      const { error } = await client.auth.signOut();
+      if (error) throw fail(error, "Sign-out failed");
+    },
 
-const scene=new THREE.Scene();
-scene.background=new THREE.Color("#FDFBF7");
-scene.fog=new THREE.Fog("#FDFBF7",70,150);
-const cam3=new THREE.PerspectiveCamera(34,innerWidth/innerHeight,0.1,400);
+    async getSession() {
+      if (!client) return null;
+      const { data, error } = await client.auth.getSession();
+      if (error) throw fail(error, "Could not read the session");
+      return data.session || null;
+    },
 
-scene.add(new THREE.HemisphereLight("#EAF1FF","#8A7F6A",0.6));
-scene.add(new THREE.AmbientLight("#FFF6EA",0.34));
-const sun=new THREE.DirectionalLight("#FFF4E4",2.1);
-sun.position.set(22,34,16); sun.castShadow=true;
-sun.shadow.mapSize.set(2048,2048); sun.shadow.bias=-0.0006; sun.shadow.normalBias=0.02;
-Object.assign(sun.shadow.camera,{near:1,far:130,left:-40,right:40,top:40,bottom:-40});
-sun.shadow.camera.updateProjectionMatrix(); scene.add(sun);
+    async getUser() {
+      if (!client) return null;
+      const { data, error } = await client.auth.getUser();
+      if (error) return null;
+      return data.user || null;
+    },
 
-/* metres -> scene: x east, z south (so north is -z, as on the map) */
-const toShape=(ring)=>new THREE.Shape(ring.map((p)=>new THREE.Vector2(p[0]*SU,p[1]*SU)));
-function flat(ring,y,mat){
-  const g=new THREE.ShapeGeometry(toShape(ring)); g.rotateX(-Math.PI/2);
-  const m=new THREE.Mesh(g,mat); m.position.y=y; m.receiveShadow=true; return m;
-}
-function solid(ring,depth){
-  const g=new THREE.ExtrudeGeometry(toShape(ring),
-    {depth:depth,bevelEnabled:true,bevelThickness:0.012,bevelSize:0.012,bevelSegments:2});
-  g.rotateX(-Math.PI/2); g.computeVertexNormals(); return g;
-}
-
-/* ---------------------------------------------------------------------
-   GROUND
-   Two layers. A large muted base plane that always exists, and on top of
-   it a Google Maps Static satellite tile of this exact village, aligned by
-   construction: the static image is centred on the same lat/lng that the
-   cadastre uses as its local origin, so the two register without any
-   offset fitting. If the key is missing, over quota, or blocked by CORS,
-   the image simply never arrives and the base plane shows through.
-   ------------------------------------------------------------------- */
-const base=new THREE.Mesh(new THREE.PlaneGeometry(320,320,1,1),
-  new THREE.MeshStandardMaterial({color:"#8C9A78",roughness:.99,metalness:0}));
-base.rotation.x=-Math.PI/2; base.position.y=-0.03; base.receiveShadow=true; scene.add(base);
-
-const SAT_ZOOM=17, SAT_PX=640;
-/* Ground metres per pixel in Web Mercator at this latitude. */
-const SAT_MPP=156543.03392*Math.cos(VILLAGE_LL[1]*Math.PI/180)/Math.pow(2,SAT_ZOOM);
-const SAT_M=SAT_PX*SAT_MPP;                       // ~671 m square
-const sat=new THREE.Mesh(new THREE.PlaneGeometry(SAT_M*SU,SAT_M*SU,1,1),
-  new THREE.MeshStandardMaterial({color:"#ffffff",roughness:.98,metalness:0,
-    transparent:true,opacity:0}));
-sat.rotation.x=-Math.PI/2; sat.position.y=-0.012; sat.receiveShadow=true; scene.add(sat);
-
-if(GOOGLE_MAPS_KEY){
-  const img=new Image();
-  img.crossOrigin="anonymous";                     // WebGL refuses tainted textures
-  img.onload=()=>{
-    const t=new THREE.Texture(img);
-    t.colorSpace=THREE.SRGBColorSpace;
-    t.anisotropy=renderer.capabilities.getMaxAnisotropy();
-    t.needsUpdate=true;
-    sat.material.map=t; sat.material.needsUpdate=true;
-    /* Fade it in rather than popping, since it lands after first paint. */
-    const t0=performance.now();
-    (function fade(){
-      const k=Math.min(1,(performance.now()-t0)/700);
-      sat.material.opacity=k*0.96;
-      if(k<1) requestAnimationFrame(fade);
-    })();
+    onChange(handler) {
+      if (!client) return { unsubscribe: function () {} };
+      const { data } = client.auth.onAuthStateChange(function (event, session) {
+        handler(event, session);
+      });
+      return data.subscription;
+    },
   };
-  img.onerror=()=>{ console.info("Satellite basemap unavailable; using the plain ground."); };
-  img.src="https://maps.googleapis.com/maps/api/staticmap?center="+
-    VILLAGE_LL[1]+","+VILLAGE_LL[0]+"&zoom="+SAT_ZOOM+"&size="+SAT_PX+"x"+SAT_PX+
-    "&scale=2&maptype=satellite&format=png&key="+GOOGLE_MAPS_KEY;
-}
 
-/* ---------------------------------------------------------------------
-   SURFACE TEXTURES
-   Painted procedurally so the scene has grain without another download.
-   These are near-white with dark detail: the parcel's status colour is the
-   material colour and multiplies through, so one texture set serves every
-   acquisition stage without washing the colour coding out.
-   ------------------------------------------------------------------- */
-function surface(kind){
-  const c=document.createElement("canvas"); c.width=c.height=256;
-  const x=c.getContext("2d");
-  const im=x.createImageData(256,256), d=im.data;
-  for(let i=0;i<d.length;i+=4){
-    const n=222+Math.random()*33;
-    d[i]=n; d[i+1]=n; d[i+2]=n; d[i+3]=255;
+  /* ===================================================================
+     PROFILES
+     The profile row is the single source of truth for role. It is read
+     from the database on every sign-in and never cached in localStorage,
+     because a value the user can edit is not an authorisation decision.
+     =================================================================== */
+  const profiles = {
+    async mine(userId) {
+      guard();
+      const { data, error } = await client
+        .from("profiles")
+        .select("id, full_name, phone, role, created_at")
+        .eq("id", userId)
+        .single();
+      if (error) throw fail(error, "Could not load your profile");
+      return data;
+    },
+
+    async updateMine(userId, patch) {
+      guard();
+      /* role is stripped on purpose. Even if it were sent, the backend
+         policy rejects self-role changes; removing it here means the UI
+         never even asks. */
+      delete patch.role;
+      const { data, error } = await client
+        .from("profiles")
+        .update(patch)
+        .eq("id", userId)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not update your profile");
+      return data;
+    },
+
+    async listAll() {
+      guard();
+      const { data, error } = await client
+        .from("profiles")
+        .select("id, full_name, phone, role, created_at")
+        .order("created_at", { ascending: false });
+      if (error) throw fail(error, "Could not load users");
+      return data || [];
+    },
+
+    async setRole(userId, role) {
+      guard();
+      if (ROLES.indexOf(role) === -1) throw new Error("Not a valid role: " + role);
+      const { data, error } = await client
+        .from("profiles")
+        .update({ role: role })
+        .eq("id", userId)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not change the role");
+      return data;
+    },
+  };
+
+  /* ===================================================================
+     LAND APPLICATIONS
+     user_id is always taken from the authenticated session, never from a
+     form field, so a client cannot file an application in someone else's
+     name. RLS enforces the same rule server-side.
+     =================================================================== */
+  const applications = {
+    async listMine(userId) {
+      guard();
+      const { data, error } = await client
+        .from("land_applications")
+        .select("*")
+        .eq("user_id", userId)
+        .order("updated_at", { ascending: false });
+      if (error) throw fail(error, "Could not load your applications");
+      return data || [];
+    },
+
+    /* Editor/admin queue. Filters are applied server-side so we never
+       pull the whole table down to search it in the browser. */
+    async listForReview(filters) {
+      guard();
+      filters = filters || {};
+      let q = client.from("land_applications").select("*");
+      if (filters.status) q = q.eq("status", filters.status);
+      else q = q.in("status", ["submitted", "under_review", "verified", "rejected"]);
+      if (filters.district) q = q.ilike("district", "%" + filters.district + "%");
+      if (filters.state) q = q.ilike("state", "%" + filters.state + "%");
+      if (filters.survey) q = q.ilike("survey_number", "%" + filters.survey + "%");
+      const { data, error } = await q.order("updated_at", { ascending: false }).limit(200);
+      if (error) throw fail(error, "Could not load the review queue");
+      return data || [];
+    },
+
+    async get(id) {
+      guard();
+      const { data, error } = await client.from("land_applications").select("*").eq("id", id).single();
+      if (error) throw fail(error, "Could not load the application");
+      return data;
+    },
+
+    async create(userId, values) {
+      guard();
+      const row = Object.assign({}, values, { user_id: userId, status: "draft" });
+      const { data, error } = await client.from("land_applications").insert(row).select().single();
+      if (error) throw fail(error, "Could not save the draft");
+      return data;
+    },
+
+    async update(id, values) {
+      guard();
+      const patch = Object.assign({}, values, { updated_at: new Date().toISOString() });
+      delete patch.user_id; // never reassign ownership from the client
+      const { data, error } = await client
+        .from("land_applications")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not update the application");
+      return data;
+    },
+
+    async setStatus(id, status) {
+      guard();
+      if (APP_STATUSES.indexOf(status) === -1) throw new Error("Not a valid status: " + status);
+      const { data, error } = await client
+        .from("land_applications")
+        .update({ status: status, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not change the application status");
+      return data;
+    },
+
+    async countsFor(userId) {
+      guard();
+      const rows = await this.listMine(userId);
+      const out = { total: rows.length, draft: 0, submitted: 0, under_review: 0, verified: 0, rejected: 0 };
+      rows.forEach(function (r) {
+        if (out[r.status] !== undefined) out[r.status]++;
+      });
+      return out;
+    },
+  };
+
+  /* ===================================================================
+     DOCUMENTS + PRIVATE STORAGE
+     The bucket is private. Files live at USER_UUID/UNIQUE_FILENAME, which
+     is what lets a storage policy scope access by the first path segment.
+     Read access is always a short-lived signed URL, never getPublicUrl().
+     =================================================================== */
+  const ALLOWED_TYPES = ["application/pdf", "image/jpeg", "image/jpg", "image/png"];
+  const MAX_BYTES = 10 * 1024 * 1024;
+
+  function safeName(name) {
+    /* Strip directory separators and anything exotic so a filename can
+       never escape its folder or be mistaken for a path. */
+    return String(name).replace(/[^\w.\-]+/g, "_").replace(/_{2,}/g, "_").slice(-80);
   }
-  x.putImageData(im,0,0);
-  if(kind==="crop"){                       // ploughed rows
-    for(let y=0;y<256;y+=6){
-      x.strokeStyle="rgba(120,110,92,"+(0.16+Math.random()*0.12)+")";
-      x.lineWidth=1.6+Math.random();
-      x.beginPath(); x.moveTo(0,y+Math.random()*1.4); x.lineTo(256,y+Math.random()*1.4); x.stroke();
-    }
-  }else if(kind==="fallow"){               // dry, uneven, no rows
-    for(let i=0;i<170;i++){
-      x.fillStyle="rgba(126,114,95,"+(0.05+Math.random()*0.12)+")";
-      x.beginPath();
-      x.ellipse(Math.random()*256,Math.random()*256,6+Math.random()*22,4+Math.random()*15,
-        Math.random()*3.14,0,6.3);
-      x.fill();
-    }
-  }else{                                   // built-up: compound walls and yards
-    x.strokeStyle="rgba(110,100,86,.3)"; x.lineWidth=2;
-    for(let i=0;i<7;i++){
-      const w=40+Math.random()*70, hgt=34+Math.random()*60;
-      x.strokeRect(Math.random()*(256-w),Math.random()*(256-hgt),w,hgt);
-    }
-  }
-  const t=new THREE.CanvasTexture(c);
-  t.wrapS=t.wrapT=THREE.RepeatWrapping;
-  t.colorSpace=THREE.SRGBColorSpace;
-  return t;
-}
-const SURF={crop:surface("crop"),fallow:surface("fallow"),built:surface("built")};
-const surfaceFor=(p)=>p.landUse[0]==="A"&&p.landUse[1]==="b"?"built"
-  :p.landUse[0]==="V"?"fallow":"crop";
 
-/* ---------------------------------------------------------------------
-   ROADS, with a painted centreline on the two metalled ones
-   ------------------------------------------------------------------- */
-const roadMat=new THREE.MeshStandardMaterial({color:"#7E756C",roughness:.95});
-const shoulderMat=new THREE.MeshStandardMaterial({color:"#A79C8D",roughness:1});
-CAD.roads.forEach((r,ri)=>{
-  const xs=r.ring.map((p)=>p[0]), ys=r.ring.map((p)=>p[1]);
-  const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);
-  /* An unpaved shoulder, slightly wider and lower, reads as a real verge. */
-  const sh=new THREE.Mesh(new THREE.PlaneGeometry((x1-x0+7)*SU,(y1-y0+7)*SU),shoulderMat);
-  sh.rotation.x=-Math.PI/2; sh.position.set((x0+x1)/2*SU,0.006,-(y0+y1)/2*SU);
-  sh.receiveShadow=true; scene.add(sh);
-  scene.add(flat(r.ring,0.014,roadMat));
+  const documents = {
+    validateFile(file) {
+      if (!file) return "Choose a file first.";
+      if (file.size === 0) return "That file is empty.";
+      if (file.size > MAX_BYTES) return "That file is larger than 10 MB.";
+      if (ALLOWED_TYPES.indexOf(file.type) === -1) return "Only PDF, JPG or PNG files are accepted.";
+      return null;
+    },
 
-  if(ri>2) return;
-  const vertical=(y1-y0)>(x1-x0);
-  const len=(vertical?y1-y0:x1-x0)*SU;
-  const n=Math.max(2,Math.floor(len/1.1));
-  const dash=new THREE.InstancedMesh(new THREE.PlaneGeometry(0.06,0.55),
-    new THREE.MeshBasicMaterial({color:"#EFE7DA",toneMapped:false}),n);
-  const o=new THREE.Object3D();
-  for(let i=0;i<n;i++){
-    const t=(i+0.5)/n;
-    const mx=vertical?(x0+x1)/2:x0+(x1-x0)*t;
-    const my=vertical?y0+(y1-y0)*t:(y0+y1)/2;
-    o.position.set(mx*SU,0.02,-my*SU);
-    o.rotation.set(-Math.PI/2,0,vertical?0:Math.PI/2);
-    o.updateMatrix(); dash.setMatrixAt(i,o.matrix);
-  }
-  scene.add(dash);
-});
+    async listForApplication(applicationId) {
+      guard();
+      const { data, error } = await client
+        .from("documents")
+        .select("*")
+        .eq("application_id", applicationId)
+        .order("created_at", { ascending: false });
+      if (error) throw fail(error, "Could not load documents");
+      return data || [];
+    },
 
-/* ---------------------------------------------------------------------
-   WATER, with a silt margin so the edge is not a hard cut
-   ------------------------------------------------------------------- */
-const waterMat=new THREE.MeshStandardMaterial({color:"#6E9BB0",roughness:.16,metalness:.2,
-  emissive:"#24404E",emissiveIntensity:.18});
-const siltMat=new THREE.MeshStandardMaterial({color:"#B3A88F",roughness:1});
-[CAD.pond,CAD.canal].forEach((ring)=>{
-  const silt=flat(ring,0.004,siltMat); silt.scale.set(1.13,1,1.13); scene.add(silt);
-  scene.add(flat(ring,0.01,waterMat));
-});
+    async upload(user, applicationId, documentType, file) {
+      guard();
+      const invalid = this.validateFile(file);
+      if (invalid) throw new Error(invalid);
 
-/* ---------------------------------------------------------------------
-   TREES
-   Field boundaries in this belt are lined with kikar and shisham. Placed
-   deterministically, outside the cadastre so they never sit on a parcel.
-   ------------------------------------------------------------------- */
-function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6D2B79F5)|0;
-  let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t;
-  return ((t^(t>>>14))>>>0)/4294967296;};}
-{
-  const R=rng(0xBEEF), HX=CAD.extent.w/2*SU, HZ=CAD.extent.h/2*SU;
-  const pos=[]; let guard=0;
-  while(pos.length<120&&guard<6000){
-    guard++;
-    const x=(R()*2-1)*(HX+16), z=(R()*2-1)*(HZ+16);
-    const outside=Math.abs(x)>HX+1.2||Math.abs(z)>HZ+1.2;
-    if(!outside) continue;
-    if(x>HX+7&&x<HX+13) continue;             // keep the canal clear
-    pos.push({x:x,z:z,s:0.32+R()*0.34,t:R()});
-  }
-  const tm=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,0),
-    new THREE.MeshStandardMaterial({roughness:.94,metalness:0,flatShading:true}),pos.length);
-  tm.castShadow=true; tm.receiveShadow=true;
-  const o=new THREE.Object3D(), col=new THREE.Color(),
-        deep=new THREE.Color("#4F6A46"), pale=new THREE.Color("#7E9866");
-  pos.forEach((p,i)=>{
-    o.position.set(p.x,p.s*0.62,p.z);
-    o.rotation.set(0,p.t*6.28,p.t*0.4-0.2);
-    o.scale.set(p.s,p.s*0.86,p.s);
-    o.updateMatrix(); tm.setMatrixAt(i,o.matrix);
-    tm.setColorAt(i,col.copy(deep).lerp(pale,p.t));
-  });
-  scene.add(tm);
-}
+      const unique =
+        (global.crypto && global.crypto.randomUUID ? global.crypto.randomUUID() : String(Date.now())) +
+        "-" +
+        safeName(file.name);
+      const path = user.id + "/" + unique;
 
-const bldGeo=new THREE.BoxGeometry(1,1,1);
-const bldMat=new THREE.MeshStandardMaterial({color:"#ffffff",roughness:.92});
-const bmesh=new THREE.InstancedMesh(bldGeo,bldMat,CAD.buildings.length);
-bmesh.castShadow=true; bmesh.receiveShadow=true;
-const dm=new THREE.Object3D();
-CAD.buildings.forEach((b,i)=>{
-  dm.position.set(b.x*SU,b.h*SU/2,b.y*SU);
-  dm.rotation.set(0,b.r,0);
-  dm.scale.set(b.w*SU,b.h*SU,b.d*SU);
-  dm.updateMatrix(); bmesh.setMatrixAt(i,dm.matrix);
-  const tone=(i*2654435761>>>0)%1000/1000;
-  bmesh.setColorAt(i,new THREE.Color().setHSL(0.09-tone*0.03,0.16+tone*0.12,0.62+tone*0.16));
-});
-if(bmesh.instanceColor) bmesh.instanceColor.needsUpdate=true;
-scene.add(bmesh);
+      const up = await client.storage.from(BUCKET).upload(path, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type,
+      });
+      if (up.error) throw fail(up.error, "Upload failed");
 
-const nodes=new Map(); const picks=[];
-for(const p of PARCELS){
-  const geo=solid(p.ringM,DEPTH);
-  geo.computeBoundingBox();
-  const bb=geo.boundingBox, cx=(bb.min.x+bb.max.x)/2, cz=(bb.min.z+bb.max.z)/2;
-  /* Texture carries the grain, material colour carries the legal status.
-     Rotating each parcel's copy means neighbouring fields are ploughed at
-     different angles, which is most of what stops a cadastre looking like
-     a spreadsheet. */
-  const tex=SURF[surfaceFor(p)].clone(); tex.needsUpdate=true;
-  tex.repeat.set(0.18,0.18);
-  tex.center.set(.5,.5);
-  tex.rotation=((p.khasra.charCodeAt(2)*37)%180)*Math.PI/180;
-  const mat=new THREE.MeshStandardMaterial({color:new THREE.Color(STAGE_COL[p.stage]),
-    map:tex,emissive:new THREE.Color(STAGE_COL[p.stage]),emissiveIntensity:.05,
-    roughness:.82,metalness:.01});
-  const mesh=new THREE.Mesh(geo,mat); mesh.castShadow=true; mesh.receiveShadow=true;
-  mesh.userData.id=p.id;
-  const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geo,18),
-    new THREE.LineBasicMaterial({color:"#3E2723",transparent:true,opacity:.3}));
-  const lift=new THREE.Group(); lift.add(mesh); lift.add(edges); scene.add(lift);
-  picks.push(mesh);
-  nodes.set(p.id,{p:p,mesh:mesh,mat:mat,edges:edges,lift:lift,
-    c:new THREE.Vector3(cx,0,cz),r:Math.max(bb.max.x-bb.min.x,bb.max.z-bb.min.z)/2,
-    y:0,glow:.05,sc:1});
-}
-let EXT={x:0,z:0};
-nodes.forEach((n)=>{EXT.x=Math.max(EXT.x,Math.abs(n.c.x)+n.r);EXT.z=Math.max(EXT.z,Math.abs(n.c.z)+n.r);});
+      const ins = await client
+        .from("documents")
+        .insert({
+          application_id: applicationId,
+          uploaded_by: user.id,
+          document_type: documentType,
+          storage_path: path,
+          status: "pending",
+        })
+        .select()
+        .single();
 
-/* ---- camera rig: orbital, damped, cannot clip the ground ---- */
-const PHI_MIN=.06,PHI_MAX=1.12;
-const OV={phi:.44,theta:.30,fov:34,margin:1.22};
-const FC={phi:.86,fov:30,margin:2.6,skew:.32};
-function fitR(hx,hz,theta,phi,fov,aspect,margin){
-  const c=Math.abs(Math.cos(theta)),s=Math.abs(Math.sin(theta));
-  const across=hx*c+hz*s, up=(hx*s+hz*c)*Math.cos(phi);
-  const tv=Math.tan(fov*Math.PI/360), th=tv*aspect;
-  return Math.max(up*margin/tv, across*margin/th);
-}
-const rg={g:{t:new THREE.Vector3(),r:40,phi:OV.phi,th:OV.theta,fov:OV.fov},
-          c:{t:new THREE.Vector3(),r:96,phi:.10,th:OV.theta,fov:OV.fov+8},
-          par:{th:0,phi:0},pan:{x:0,y:0}};
-const ptr={x:0,y:0};
-addEventListener("pointermove",(e)=>{ptr.x=(e.clientX/innerWidth)*2-1;ptr.y=(e.clientY/innerHeight)*2-1;});
-const sc={o:new THREE.Vector3(),s:new THREE.Vector3()};
-const dmp=(a,b,l,dt)=>THREE.MathUtils.damp(a,b,l,dt);
-const dmpA=(a,b,l,dt)=>a+Math.atan2(Math.sin(b-a),Math.cos(b-a))*(1-Math.exp(-l*dt));
+      if (ins.error) {
+        /* The file is already in Storage but its metadata row was
+           refused. Remove the object so the bucket does not accumulate
+           orphans that nothing references. */
+        await client.storage.from(BUCKET).remove([path]);
+        throw fail(ins.error, "The file uploaded but its record could not be saved, so the upload was rolled back");
+      }
+      return ins.data;
+    },
 
-function rig(dt){
-  const asp=innerWidth/Math.max(innerHeight,1), g=rg.g, c=rg.c;
-  const n=state.sel?nodes.get(state.sel):null;
-  if(n){
-    g.t.set(n.c.x,DEPTH+.2,n.c.z); g.phi=FC.phi; g.fov=FC.fov;
-    g.th=Math.atan2(n.c.x,n.c.z)+FC.skew;
-    g.r=fitR(n.r,n.r,0,FC.phi,FC.fov,asp,FC.margin);
-  }else{
-    g.t.set(0,0,0); g.phi=OV.phi; g.th=OV.theta; g.fov=OV.fov;
-    g.r=fitR(EXT.x,EXT.z,OV.theta,OV.phi,OV.fov,asp,OV.margin);
-  }
-  const st=n?.35:1;
-  rg.par.th=dmp(rg.par.th,ptr.x*.10*st,2.2,dt);
-  rg.par.phi=dmp(rg.par.phi,-ptr.y*.045*st,2.2,dt);
-  c.t.x=dmp(c.t.x,g.t.x,3.1,dt); c.t.y=dmp(c.t.y,g.t.y,3.1,dt); c.t.z=dmp(c.t.z,g.t.z,3.1,dt);
-  c.r=dmp(c.r,g.r,2.5,dt); c.phi=dmp(c.phi,g.phi,2.9,dt);
-  c.th=dmpA(c.th,g.th,2.9,dt); c.fov=dmp(c.fov,g.fov,3.3,dt);
-  const phi=THREE.MathUtils.clamp(c.phi+rg.par.phi,PHI_MIN,PHI_MAX), th=c.th+rg.par.th;
-  const sp=Math.sin(phi);
-  sc.o.set(sp*Math.sin(th),Math.cos(phi),sp*Math.cos(th));
-  cam3.position.copy(c.t).addScaledVector(sc.o,c.r);
-  cam3.position.y=Math.max(cam3.position.y,1.0);
-  cam3.lookAt(c.t);
-  if(Math.abs(cam3.fov-c.fov)>1e-4){cam3.fov=c.fov;cam3.updateProjectionMatrix();}
-  rg.pan.x=dmp(rg.pan.x,(n&&innerWidth>=1120)?.24:0,2.6,dt);
-  rg.pan.y=dmp(rg.pan.y,n?0:.04,2.6,dt);
-  const hh=c.r*Math.tan(c.fov*Math.PI/360);
-  sc.s.set(rg.pan.x*hh*asp,rg.pan.y*hh,0).applyQuaternion(cam3.quaternion);
-  cam3.position.add(sc.s);
-}
+    /* Signed URLs are minted on demand and deliberately not persisted:
+       a URL cached in localStorage outlives the session that earned it. */
+    async signedUrl(storagePath, seconds) {
+      guard();
+      const { data, error } = await client.storage
+        .from(BUCKET)
+        .createSignedUrl(storagePath, seconds || 3600);
+      if (error) throw fail(error, "Could not open the document");
+      return data.signedUrl;
+    },
 
-const ray=new THREE.Raycaster(), ndc=new THREE.Vector2();
-function pick(x,y){
-  ndc.x=(x/innerWidth)*2-1; ndc.y=-(y/innerHeight)*2+1;
-  ray.setFromCamera(ndc,cam3);
-  const h=ray.intersectObjects(picks,false);
-  return h.length?h[0].object.userData.id:null;
-}
-cv.addEventListener("pointermove",(e)=>{
-  if(state.mode!=="scene")return;
-  const id=pick(e.clientX,e.clientY);
-  if(id!==state.hov){state.hov=id;cv.style.cursor=id?"pointer":"";}
-});
-cv.addEventListener("click",(e)=>{if(state.mode==="scene")select(pick(e.clientX,e.clientY));});
+    async verify(id, verifierId) {
+      guard();
+      const { data, error } = await client
+        .from("documents")
+        .update({
+          status: "verified",
+          rejection_reason: null,
+          verified_by: verifierId,
+          verified_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not verify the document");
+      return data;
+    },
 
-function paint(){ /* per-frame in the loop; kept for the HUD's call sites */ }
-function fitAll(){ state.sel=null; renderRecord(); renderStageBar(); }
+    async reject(id, verifierId, reason) {
+      guard();
+      if (!reason || !reason.trim()) throw new Error("A rejection needs a reason.");
+      const { data, error } = await client
+        .from("documents")
+        .update({
+          status: "rejected",
+          rejection_reason: reason.trim(),
+          verified_by: verifierId,
+          verified_at: new Date().toISOString(),
+        })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not reject the document");
+      return data;
+    },
+  };
 
-let sLast=performance.now();
-const tmp=new THREE.Color(), cream=new THREE.Color("#FDFBF7"), pv=new THREE.Vector3();
-function sceneLoop(now){
-  requestAnimationFrame(sceneLoop);
-  const dt=Math.min((now-sLast)/1000,1/30); sLast=now;
-  if(state.mode!=="scene"&&cv.dataset.on!=="true")return;
-  rig(dt);
-  nodes.forEach((n,id)=>{
-    const sel=state.sel===id, hov=state.hov===id, dim=state.sel!==null&&!sel;
-    n.y=dmp(n.y,sel?.34:hov?.15:0,6,dt); n.lift.position.y=n.y;
-    n.sc=dmp(n.sc,hov&&!sel?1.02:1,7,dt); n.lift.scale.setScalar(n.sc);
-    n.glow=dmp(n.glow,sel?.5:hov?.28:.05,6,dt); n.mat.emissiveIntensity=n.glow;
-    const k=1-Math.exp(-5*dt);
-    tmp.set(STAGE_COL[n.p.stage]); if(dim)tmp.lerp(cream,.42);
-    n.mat.color.lerp(tmp,k);
-    n.edges.material.opacity=dmp(n.edges.material.opacity,dim?.12:.3,6,dt);
-  });
-  renderer.render(scene,cam3);
-}
-requestAnimationFrame(sceneLoop);
+  /* ===================================================================
+     PUBLIC LAND RECORDS
+     =================================================================== */
+  const publicRecords = {
+    async list(filters) {
+      guard();
+      filters = filters || {};
+      let q = client.from("public_land_records").select("*");
+      if (filters.district) q = q.ilike("district", "%" + filters.district + "%");
+      if (filters.state) q = q.ilike("state", "%" + filters.state + "%");
+      if (filters.survey) q = q.ilike("survey_number", "%" + filters.survey + "%");
+      const { data, error } = await q.order("created_at", { ascending: false }).limit(500);
+      if (error) throw fail(error, "Could not load public records");
+      return data || [];
+    },
 
-function resize3(){cam3.aspect=innerWidth/innerHeight;cam3.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);}
-addEventListener("resize",resize3); resize3();
+    async createFromApplication(app, ownerDisplayName, verifierId) {
+      guard();
+      const { data, error } = await client
+        .from("public_land_records")
+        .insert({
+          application_id: app.id,
+          owner_display_name: ownerDisplayName,
+          survey_number: app.survey_number,
+          village: app.village,
+          district: app.district,
+          state: app.state,
+          land_area: app.land_area,
+          latitude: app.latitude,
+          longitude: app.longitude,
+          verified_at: new Date().toISOString(),
+          verified_by: verifierId,
+        })
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not publish the record");
+      return data;
+    },
 
-/* ---- entering and leaving the register ---- */
-const leaveBtn=document.getElementById("leave3d");
-function enterScene(){
-  if(state.mode==="scene")return;
-  goal.cx=VILLAGE_CX; goal.cy=VILLAGE_CY; goal.lz=-1.2;   // the 2D descent
-  setTimeout(()=>{
-    state.mode="scene";
-    cv.dataset.on="true"; mapEl.dataset.off="true";
-    leaveBtn.dataset.on="true";
-    document.querySelector(".zoomer").style.display="none";
-    renderStageBar();
-  },620);
-}
-function leaveScene(){
-  state.mode="map"; state.sel=null; state.hov=null;
-  cv.dataset.on="false"; mapEl.dataset.off="false";
-  leaveBtn.dataset.on="false";
-  document.querySelector(".zoomer").style.display="";
-  renderRecord(); renderStageBar(); viewIndia();
-}
-document.getElementById("demo-zoom").onclick=enterScene;
-demoEl.querySelector(".demo__pin").addEventListener("click",enterScene);
-leaveBtn.onclick=leaveScene;
+    async update(id, patch) {
+      guard();
+      const { data, error } = await client
+        .from("public_land_records")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw fail(error, "Could not update the public record");
+      return data;
+    },
+  };
 
+  /* ===================================================================
+     AUDIT LOGS -- read only from the browser.
+     This client never writes audit rows. An audit trail a user can forge
+     is worthless, so entries must be written by database triggers or
+     SECURITY DEFINER functions. See the README for what that means for
+     which actions actually appear here.
+     =================================================================== */
+  const audit = {
+    async list(limit) {
+      guard();
+      const { data, error } = await client
+        .from("audit_logs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit || 100);
+      if (error) throw fail(error, "Could not load audit logs");
+      return data || [];
+    },
+  };
+
+  /* ===================================================================
+     REALTIME -- used only where it changes the workflow: an applicant
+     seeing their status flip, and an editor's queue gaining a new filing.
+     =================================================================== */
+  const realtime = {
+    subscribeApplications(onChange) {
+      if (!client) return null;
+      const channel = client
+        .channel("land_applications_changes")
+        .on("postgres_changes", { event: "*", schema: "public", table: "land_applications" }, onChange)
+        .subscribe();
+      return channel;
+    },
+    unsubscribe(channel) {
+      if (client && channel) client.removeChannel(channel);
+    },
+  };
+
+  global.LAMS = {
+    client: client,
+    CONFIGURED: CONFIGURED,
+    BUCKET: BUCKET,
+    APP_STATUSES: APP_STATUSES,
+    DOC_STATUSES: DOC_STATUSES,
+    ROLES: ROLES,
+    auth: auth,
+    profiles: profiles,
+    applications: applications,
+    documents: documents,
+    publicRecords: publicRecords,
+    audit: audit,
+    realtime: realtime,
+  };
+})(window);
+
+</script>
+
+<script>
+/* ===== app.js ===== */
 /* =====================================================================
-   SELECTION
+   app.js -- UI logic only. Every Supabase call goes through window.LAMS.
    ===================================================================== */
-function select(id){
-  state.sel=id; state.hov=null;
-  renderRecord(); renderStageBar();
-}
+(function () {
+  "use strict";
+  var S = window.LAMS;
 
-/* =====================================================================
-   5. HUD
-   ===================================================================== */
-const isOfficial=()=>!!state.user;
-const canEdit=()=>!!(state.user&&state.user.role==="editor");
+  /* Session state held in memory for the life of the page. The profile is
+     fetched once per sign-in rather than on every interaction, and it is
+     never mirrored into localStorage: role decisions belong to the
+     database, and RLS re-checks them on every request regardless. */
+  var me = { user: null, profile: null };
+  var page = "dashboard";
+  var channel = null;
 
-function stats(){
-  let verified=0,acq=0,enc=0,assessed=0,paid=0,area=0;
-  for(const p of PARCELS){
-    area+=p.areaSqm;
-    if(p.verification==="verified") verified++;
-    if(p.stage!=="not_acquired"){acq++; const comp=p.circleValue*2; assessed+=comp;
-      if(p.stage==="possession_taken") paid+=comp;}
-    if(p.encumbrance!=="Nil") enc++;
-  }
-  return {verified:verified,acq:acq,enc:enc,assessed:assessed,paid:paid,area:area,n:PARCELS.length};
-}
+  var $ = function (id) { return document.getElementById(id); };
+  var el = function (tag, cls, html) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (html !== undefined) n.innerHTML = html;
+    return n;
+  };
+  var esc = function (s) {
+    return String(s === null || s === undefined ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  };
+  var fmtDate = function (iso) {
+    if (!iso) return "\u2014";
+    return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+  };
+  var label = function (s) { return String(s || "").replace(/_/g, " "); };
+  var badge = function (s) { return '<span class="badge" data-s="' + esc(s) + '">' + esc(label(s)) + "</span>"; };
 
-function renderRail(){
-  const s=stats();
-  /* Four things a citizen actually needs off this screen: what land is
-     worth here, whether the record can be relied on, whether the state
-     wants the land, and whether the title is clean. */
-  const cards=[
-    {label:"Circle rate here",value:inr.format(5560),unit:"/ m\u00b2",fill:null,
-     foot:"Agricultural land, Delhi rural belt. Abadi plots are assessed at "+inr.format(23280)+"/m\u00b2."},
-    {label:"Records verified",value:s.verified+" of "+s.n,fill:s.verified/s.n,
-     foot:(s.n-s.verified)+" awaiting field verification or under objection \u2014 treat those as provisional."},
-    {label:"Under acquisition",value:s.acq+" of "+s.n,fill:s.acq/s.n,
-     foot:ACQ_PROJECT+" \u00b7 "+rupees(s.assessed)+" assessed, "+rupees(s.paid)+" paid."},
-    {label:"Encumbrance flagged",value:String(s.enc),unit:"parcels",fill:s.enc/s.n,
-     foot:"Mortgage or civil suit on record. Always check this before you buy or sell."},
-  ];
-  document.getElementById("rail").innerHTML=cards.map((c,i)=>
-    '<article class="panel kpi" style="--i:'+i+'"><p class="kpi__label">'+c.label+'</p>'+
-    '<p class="kpi__value">'+c.value+(c.unit?'<span>'+c.unit+'</span>':'')+'</p>'+
-    (c.fill===null?'':'<div class="kpi__meter"><i style="width:'+Math.round(c.fill*100)+'%"></i></div>')+
-    '<p class="kpi__foot">'+c.foot+'</p></article>').join("");
-}
-
-function renderLegend(){
-  const ct={}; STAGE_ORDER.forEach((s)=>ct[s]=0);
-  PARCELS.forEach((p)=>ct[p.stage]++);
-  document.getElementById("legend").innerHTML=STAGE_ORDER.map((s)=>
-    '<li class="legend__row"><span class="legend__sw" style="background:'+STAGE[s].color+'"></span>'+
-    '<span class="legend__lb">'+STAGE[s].label+'</span><span class="legend__ct">'+ct[s]+'</span></li>').join("");
-}
-
-let noticeTimer=null;
-function notify(msg){
-  clearTimeout(noticeTimer);
-  document.getElementById("notice").innerHTML='<p class="pill pill--notice" role="status">'+msg+'</p>';
-  noticeTimer=setTimeout(()=>{document.getElementById("notice").innerHTML="";},3400);
-}
-
-let explored=false;
-function renderStageBar(){
-  const h=document.getElementById("hint"), x=document.getElementById("exit");
-  h.innerHTML=""; x.innerHTML="";
-  if(state.sel){
-    explored=true;
-    x.innerHTML='<button type="button" class="pill" id="exit-btn">Back to the whole village<kbd>Esc</kbd></button>';
-    document.getElementById("exit-btn").onclick=()=>{select(null);fitAll();};
-  }else if(state.mode==="scene"){
-    /* The register view is locked on purpose: no wheel zoom, no panning
-       away from the village. The only way back out is the Zoom out control. */
-    h.innerHTML='<p class="pill">Click any plot to open its khasra record &middot; the view stays on this village until you zoom out</p>';
-  }else if(!explored){
-    h.innerHTML='<p class="pill">Open the marker on West Delhi to enter the village register</p>';
-  }
-}
-
-function row(k,v,cls){return '<div class="row"><span class="row__k">'+k+'</span><span class="row__v '+(cls||"")+'">'+v+'</span></div>';}
-
-function renderRecord(){
-  const rec=document.getElementById("record");
-  if(!state.sel){rec.style.display="none";return;}
-  const p=PARCELS.find((x)=>x.id===state.sel);
-  rec.style.display="flex"; rec.setAttribute("data-state","entering");
-
-  document.getElementById("r-eyebrow").textContent="Khasra number \u00b7 Khata "+p.khata;
-  document.getElementById("r-khasra").textContent=p.khasra;
-  document.getElementById("r-where").textContent=
-    VILLAGE.name+", Tehsil "+VILLAGE.tehsil+", "+VILLAGE.district;
-
-  const vmap={verified:["chip--ok","Record verified"],pending:["","Verification pending"],objection:["chip--warn","Under objection"]};
-  const v=vmap[p.verification];
-  document.getElementById("r-chips").innerHTML=
-    '<span class="chip"><span class="chip__dot" style="background:'+STAGE[p.stage].color+'"></span>'+STAGE[p.stage].label+'</span>'+
-    '<span class="chip '+v[0]+'">'+v[1]+'</span>'+
-    (p.encumbrance!=="Nil"?'<span class="chip chip--warn">'+p.encumbrance+'</span>':'<span class="chip chip--ok">No encumbrance</span>');
-
-  const cpKm=km(p.c,CP), mKm=km(p.c,METRO);
-  let html='<p class="sec">The land</p>'+
-    row("Extent",num(Math.round(p.areaSqm))+" m\u00b2")+
-    row("In local measure",p.bigha.toFixed(2)+" bigha ("+(p.areaSqm/4046.86).toFixed(2)+" acre)")+
-    row("Land use",p.landUse)+
-    row("Coordinates",Math.abs(p.c[1]).toFixed(5)+"\u00b0N, "+Math.abs(p.c[0]).toFixed(5)+"\u00b0E")+
-    row("Elevation","approx. "+elevation(p)+" m above sea level")+
-    row("Distance to Delhi centre",cpKm.toFixed(1)+" km (Connaught Place)")+
-    row("Nearest railway station",mKm.toFixed(1)+" km (Nangloi)")+
-  '<p class="sec">Valuation</p>'+
-    row("Circle rate",inr.format(p.circleRate)+" / m\u00b2")+
-    row("Value at circle rate",rupees(p.circleValue))+
-    row("Indicative market value",rupees(p.marketValue),"row__v--lead")+
-  '<p class="sec">Record status</p>'+
-    row("Last mutation entered",p.mutation)+
-    row("Encumbrance on record",p.encumbrance)+
-    row("Acquisition",p.stage==="not_acquired"?"Not under acquisition":ACQ_PROJECT);
-  if(p.stage!=="not_acquired"){
-    html+=row("Compensation assessed",rupees(p.circleValue*2))+
-          row("Position",STAGE[p.stage].hint);
+  /* ---------------- toasts ---------------- */
+  function toast(msg, kind) {
+    var t = el("div", "toast", esc(msg));
+    if (kind) t.setAttribute("data-k", kind);
+    $("toasts").appendChild(t);
+    setTimeout(function () {
+      t.style.transition = "opacity .25s, transform .25s";
+      t.style.opacity = "0"; t.style.transform = "translateY(8px)";
+      setTimeout(function () { t.remove(); }, 260);
+    }, kind === "err" ? 5200 : 3200);
   }
 
-  html+='<p class="sec">Ownership</p>';
-  if(isOfficial()){
-    html+=row("Recorded owner",p.owner)+
-          row("Holding type",p.coOwners?"Joint khata, co-shared":"Sole ownership")+
-          row("Khata / khewat",p.khata);
-  }else{
-    html+='<div class="locked"><div class="locked__h">'+
-      '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">'+
-      '<rect x="3" y="7" width="10" height="7" rx="1.6" fill="currentColor" opacity=".8"/>'+
-      '<path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" stroke-width="1.4" fill="none"/></svg>'+
-      'Owner name is not public</div>'+
-      '<p class="locked__b">Everything above is land data and open to anyone. The recorded owner and the '+
-      'khata roll are personal data, released only on a reasoned request to the District Collector.</p>'+
-      '<button class="locked__btn" id="req-btn">Request owner details</button></div>';
+  /* Wraps an async action with a loading label and a disabled button, so
+     a slow network cannot produce two applications from one click. */
+  async function withBusy(btn, busyLabel, fn) {
+    var original = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
+    try { return await fn(); }
+    catch (e) { toast(e.message || String(e), "err"); return null; }
+    finally { if (btn) { btn.disabled = false; btn.textContent = original; } }
   }
-  document.getElementById("r-body").innerHTML=html;
-  if(!isOfficial()) document.getElementById("req-btn").onclick=()=>openRequest(p);
 
-  const foot=document.getElementById("r-foot");
-  if(canEdit()){
-    const i=STAGE_ORDER.indexOf(p.stage), next=i<STAGE_ORDER.length-1?STAGE_ORDER[i+1]:null;
-    foot.innerHTML='<footer class="record__foot">'+
-      '<button class="btn btn--primary" id="adv" '+(next?"":"disabled")+'>'+
-      (next?"Move to "+STAGE[next].label.toLowerCase():"Fully acquired")+'</button>'+
-      '<button class="btn btn--ghost" id="cl">Close</button></footer>';
-    document.getElementById("adv").onclick=()=>{
-      if(!next)return;
-      p.stage=next; paint(); renderRail(); renderLegend(); renderRecord();
-      notify("Khasra "+p.khasra+" moved to "+STAGE[next].label+".");
+  function loadingBlock(text) { return '<div class="loading"><span class="spin"></span>' + esc(text) + "</div>"; }
+  function emptyBlock(text) { return '<div class="empty">' + esc(text) + "</div>"; }
+  function errorBlock(text) { return '<div class="errbox">' + esc(text) + "</div>"; }
+
+  /* ---------------- modal ---------------- */
+  function modal(title, sub, bodyHtml, onMount) {
+    var host = $("modal-host");
+    host.innerHTML =
+      '<div class="modal" id="m-back"><div class="panel modal__card anim">' +
+      "<h3>" + esc(title) + "</h3><p>" + esc(sub) + "</p>" + bodyHtml + "</div></div>";
+    var close = function () { host.innerHTML = ""; };
+    $("m-back").addEventListener("click", function (e) { if (e.target.id === "m-back") close(); });
+    if (onMount) onMount(close);
+    return close;
+  }
+
+  /* ===================================================================
+     AUTH SCREENS
+     =================================================================== */
+  function showAuth() {
+    $("view-auth").hidden = false;
+    $("view-app").hidden = true;
+  }
+  function authMsg(text, kind) {
+    var n = $("auth-msg");
+    n.textContent = text || "";
+    n.style.color = kind === "err" ? "var(--err)" : kind === "ok" ? "var(--ok)" : "var(--ink-60)";
+  }
+
+  $("tab-login").onclick = function () {
+    $("tab-login").setAttribute("aria-selected", "true");
+    $("tab-signup").setAttribute("aria-selected", "false");
+    $("form-login").hidden = false; $("form-signup").hidden = true; authMsg("");
+  };
+  $("tab-signup").onclick = function () {
+    $("tab-signup").setAttribute("aria-selected", "true");
+    $("tab-login").setAttribute("aria-selected", "false");
+    $("form-signup").hidden = false; $("form-login").hidden = true; authMsg("");
+  };
+
+  $("form-login").onsubmit = function (e) {
+    e.preventDefault();
+    authMsg("");
+    withBusy($("li-go"), "Signing in\u2026", async function () {
+      await S.auth.signIn($("li-email").value.trim(), $("li-pass").value);
+      /* onAuthStateChange takes it from here and boots the workspace. */
+    });
+  };
+
+  $("form-signup").onsubmit = function (e) {
+    e.preventDefault();
+    authMsg("");
+    withBusy($("su-go"), "Creating account\u2026", async function () {
+      var res = await S.auth.signUp(
+        $("su-email").value.trim(), $("su-pass").value,
+        $("su-name").value.trim(), $("su-phone").value.trim()
+      );
+      $("form-signup").reset();
+      if (res && res.session) return;
+      /* No session back means the project requires email confirmation. */
+      authMsg("Account created. Check your inbox to confirm the address, then sign in.", "ok");
+      $("tab-login").click();
+    });
+  };
+
+  $("btn-signout").onclick = function () {
+    withBusy($("btn-signout"), "Signing out\u2026", async function () { await S.auth.signOut(); });
+  };
+
+  /* ===================================================================
+     BOOT / TEARDOWN
+     =================================================================== */
+  async function boot(session) {
+    if (!session || !session.user) return showAuth();
+    me.user = session.user;
+    try {
+      me.profile = await S.profiles.mine(session.user.id);
+    } catch (e) {
+      showAuth();
+      authMsg(e.message + " (the profile row may not have been created yet)", "err");
+      return;
+    }
+    $("view-auth").hidden = true;
+    $("view-app").hidden = false;
+    $("me-name").textContent = me.profile.full_name || "Unnamed";
+    $("me-email").textContent = me.user.email;
+    $("me-role").textContent = me.profile.role;
+    applyRoleNav();
+    go(me.profile.role === "user" ? "dashboard" : "dashboard");
+    if (!channel) {
+      channel = S.realtime.subscribeApplications(function () {
+        if (page === "dashboard" || page === "mine" || page === "review") render();
+      });
+    }
+  }
+
+  function teardown() {
+    /* Clear every trace of the previous user from the DOM: another
+       account signing in on this tab must not inherit their rows, and no
+       signed document URL should survive the session that minted it. */
+    me = { user: null, profile: null };
+    $("page-body").innerHTML = "";
+    $("page-actions").innerHTML = "";
+    $("me-name").textContent = "\u2014";
+    $("me-email").textContent = "";
+    $("modal-host").innerHTML = "";
+    if (channel) { S.realtime.unsubscribe(channel); channel = null; }
+    showAuth();
+  }
+
+  /* Navigation visibility follows role, but it is only convenience. A
+     hidden button reached by hand still hits RLS, which is the actual
+     authorisation boundary. */
+  function applyRoleNav() {
+    var role = me.profile ? me.profile.role : "user";
+    Array.prototype.forEach.call($("nav").querySelectorAll("button"), function (b) {
+      var need = b.getAttribute("data-role");
+      b.hidden = !!(need && need.split(",").indexOf(role) === -1);
+    });
+  }
+
+  $("nav").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-page]");
+    if (b) go(b.getAttribute("data-page"));
+  });
+
+  function go(p) {
+    page = p;
+    Array.prototype.forEach.call($("nav").querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-current", String(b.getAttribute("data-page") === p));
+    });
+    render();
+  }
+
+  var PAGES = {
+    dashboard: ["Dashboard", "Live figures from your Supabase project."],
+    apply: ["New application", "Saved as a draft first. Nothing is filed until you submit it."],
+    mine: ["My applications", "Drafts can be edited. Once submitted, the record is locked for review."],
+    review: ["Review queue", "Applications awaiting scrutiny, with their supporting documents."],
+    records: ["Public land records", "Verified records published for public inspection."],
+    users: ["Users & roles", "Role changes take effect on the account's next request."],
+    audit: ["Audit log", "Written by the database, not by this browser."],
+    profile: ["My profile", "Your name and phone. Role is set by an administrator."]
+  };
+
+  async function render() {
+    var meta = PAGES[page] || PAGES.dashboard;
+    $("page-title").textContent = meta[0];
+    $("page-sub").textContent = meta[1];
+    $("page-actions").innerHTML = "";
+    var body = $("page-body");
+    body.innerHTML = loadingBlock("Loading\u2026");
+    try {
+      if (page === "dashboard") await renderDashboard(body);
+      else if (page === "apply") renderApplyForm(body, null);
+      else if (page === "mine") await renderMine(body);
+      else if (page === "review") await renderReview(body);
+      else if (page === "records") await renderRecords(body);
+      else if (page === "users") await renderUsers(body);
+      else if (page === "audit") await renderAudit(body);
+      else if (page === "profile") renderProfile(body);
+    } catch (e) {
+      body.innerHTML = errorBlock(e.message || String(e));
+    }
+  }
+
+  /* ===================================================================
+     DASHBOARD
+     =================================================================== */
+  function statCards(pairs) {
+    return '<div class="stats">' + pairs.map(function (p) {
+      return '<div class="panel stat anim"><p>' + esc(p[0]) + "</p><b>" + esc(String(p[1])) + "</b></div>";
+    }).join("") + "</div>";
+  }
+
+  async function renderDashboard(body) {
+    var role = me.profile.role;
+    if (role === "user") {
+      var c = await S.applications.countsFor(me.user.id);
+      var recent = (await S.applications.listMine(me.user.id)).slice(0, 6);
+      body.innerHTML =
+        statCards([["Applications", c.total], ["Drafts", c.draft], ["Submitted", c.submitted],
+                   ["Verified", c.verified], ["Rejected", c.rejected]]) +
+        '<div class="panel card anim"><h3>Recent applications</h3><p>Your six most recently updated filings.</p>' +
+        (recent.length ? appTable(recent, false) : emptyBlock("No applications yet. Start one from \u201cNew application\u201d.")) +
+        "</div>";
+    } else {
+      var queue = await S.applications.listForReview({});
+      var counts = { submitted: 0, under_review: 0, verified: 0, rejected: 0 };
+      queue.forEach(function (a) { if (counts[a.status] !== undefined) counts[a.status]++; });
+      var extra = [];
+      if (role === "admin") {
+        var users = await S.profiles.listAll();
+        extra.push(["Registered users", users.length]);
+      }
+      body.innerHTML =
+        statCards([["Awaiting review", counts.submitted], ["Under review", counts.under_review],
+                   ["Verified", counts.verified], ["Rejected", counts.rejected]].concat(extra)) +
+        '<div class="panel card anim"><h3>Most recent filings</h3><p>Newest first.</p>' +
+        (queue.length ? appTable(queue.slice(0, 8), true) : emptyBlock("Nothing has been submitted yet.")) +
+        "</div>";
+    }
+  }
+
+  function appTable(rows, forReview) {
+    return "<table><thead><tr><th>Survey no.</th><th>Village</th><th>District</th>" +
+      "<th>Area</th><th>Status</th><th>Updated</th><th></th></tr></thead><tbody>" +
+      rows.map(function (a) {
+        return "<tr><td class='mono'>" + esc(a.survey_number) + "</td><td>" + esc(a.village) +
+          "</td><td>" + esc(a.district) + "</td><td class='mono'>" + esc(a.land_area) +
+          "</td><td>" + badge(a.status) + "</td><td>" + fmtDate(a.updated_at || a.created_at) +
+          "</td><td><button class='btn btn--ghost btn--sm' data-open='" + esc(a.id) + "'>" +
+          (forReview ? "Review" : "Open") + "</button></td></tr>";
+      }).join("") + "</tbody></table>";
+  }
+
+  /* Delegated so tables can be re-rendered without rebinding handlers. */
+  $("page-body").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-open]");
+    if (b) openApplication(b.getAttribute("data-open"));
+  });
+
+  /* ===================================================================
+     APPLICATION FORM
+     =================================================================== */
+  function validateApp(v) {
+    var errs = {};
+    if (!v.survey_number) errs.survey_number = "Required.";
+    if (!v.village) errs.village = "Required.";
+    if (!v.district) errs.district = "Required.";
+    if (!v.state) errs.state = "Required.";
+    if (!(v.land_area > 0)) errs.land_area = "Must be greater than zero.";
+    if (!(v.latitude >= -90 && v.latitude <= 90)) errs.latitude = "Between \u221290 and 90.";
+    if (!(v.longitude >= -180 && v.longitude <= 180)) errs.longitude = "Between \u2212180 and 180.";
+    return errs;
+  }
+
+  function renderApplyForm(body, existing) {
+    var a = existing || {};
+    body.innerHTML =
+      '<div class="panel card anim"><h3>' + (existing ? "Edit draft" : "Application details") + "</h3>" +
+      "<p>All fields are required. Coordinates locate the parcel on the public map once verified.</p>" +
+      '<form id="app-form">' +
+      '<div class="grid2">' +
+        f("survey_number", "Survey number", "text", a.survey_number) +
+        f("village", "Village", "text", a.village) +
+        f("district", "District", "text", a.district) +
+        f("state", "State", "text", a.state) +
+      "</div>" +
+      '<div class="grid3">' +
+        f("land_area", "Land area (hectares)", "number", a.land_area, 'step="0.0001" min="0"') +
+        f("latitude", "Latitude", "number", a.latitude, 'step="any"') +
+        f("longitude", "Longitude", "number", a.longitude, 'step="any"') +
+      "</div>" +
+      '<div class="field"><label for="fld-description">Description</label>' +
+      '<textarea id="fld-description">' + esc(a.description || "") + "</textarea>" +
+      '<small id="err-description" hidden></small></div>' +
+      '<div class="row-actions">' +
+      '<button class="btn btn--primary" id="btn-draft" type="submit">' +
+      (existing ? "Save changes" : "Save draft") + "</button>" +
+      (existing ? '<button class="btn btn--ghost" id="btn-cancel" type="button">Cancel</button>' : "") +
+      "</div></form></div>";
+
+    function f(name, lbl, type, val, attrs) {
+      return '<div class="field"><label for="fld-' + name + '">' + lbl + "</label>" +
+        '<input id="fld-' + name + '" type="' + type + '" ' + (attrs || "") +
+        ' value="' + esc(val === undefined || val === null ? "" : val) + '" />' +
+        '<small id="err-' + name + '" hidden></small></div>';
+    }
+
+    if (existing) $("btn-cancel").onclick = function () { go("mine"); };
+
+    $("app-form").onsubmit = function (e) {
+      e.preventDefault();
+      var v = {
+        survey_number: $("fld-survey_number").value.trim(),
+        village: $("fld-village").value.trim(),
+        district: $("fld-district").value.trim(),
+        state: $("fld-state").value.trim(),
+        land_area: parseFloat($("fld-land_area").value),
+        latitude: parseFloat($("fld-latitude").value),
+        longitude: parseFloat($("fld-longitude").value),
+        description: $("fld-description").value.trim()
+      };
+      var errs = validateApp(v);
+      ["survey_number","village","district","state","land_area","latitude","longitude","description"]
+        .forEach(function (k) {
+          var n = $("err-" + k);
+          if (!n) return;
+          n.hidden = !errs[k]; n.textContent = errs[k] || "";
+        });
+      if (Object.keys(errs).length) { toast("Fix the highlighted fields.", "err"); return; }
+
+      withBusy($("btn-draft"), "Saving\u2026", async function () {
+        if (existing) {
+          await S.applications.update(existing.id, v);
+          toast("Draft updated.", "ok");
+        } else {
+          await S.applications.create(me.user.id, v);
+          toast("Draft saved.", "ok");
+        }
+        go("mine");
+      });
     };
-  }else{
-    foot.innerHTML='<p class="note">'+(isOfficial()
-      ?"Your account is read-only. Mutations and stage changes are entered by the halqa patwari."
-      :"This is the public copy of the record. It is not a title document and does not by itself prove ownership.")+
-      '</p><footer class="record__foot"><button class="btn btn--ghost" style="flex:1" id="cl">Close</button></footer>';
   }
-  document.getElementById("cl").onclick=()=>{select(null);fitAll();};
-}
 
-document.getElementById("search-form").onsubmit=(e)=>{
-  e.preventDefault();
-  const q=document.getElementById("q").value.trim().toLowerCase();
-  if(!q)return;
-  const hit=PARCELS.find((p)=>p.khasra.toLowerCase()===q||p.khata.toLowerCase()===q||p.id.toLowerCase()===q);
-  if(hit){select(hit.id);document.getElementById("q").value="";}
-  else notify('No khasra matching "'+q+'" in '+VILLAGE.name+".");
-};
-
-/* =====================================================================
-   6. ACCESS: public by default, officials by sign-in
-   ===================================================================== */
-const loginModal=document.getElementById("login-modal"), reqModal=document.getElementById("req-modal");
-const lgMsg=document.getElementById("lg-msg"), rqMsg=document.getElementById("rq-msg");
-let reqTarget=null;
-document.getElementById("lg-foot").textContent=supabase
-  ?"Passwords are verified by Supabase Auth. Accounts are provisioned by the Revenue Department."
-  :"Demo mode: credentials are checked against the local roster. Try patwari.bakkarwala@nic.in / patwari@2026";
-const setMsg=(el,t,k)=>{el.textContent=t||"";el.setAttribute("data-kind",k||"");};
-
-function applyIdentity(){
-  const on=isOfficial();
-  document.getElementById("who-box").hidden=!on;
-  document.getElementById("sign-in-btn").hidden=on;
-  document.getElementById("view-chip").hidden=on;
-  if(on){
-    document.getElementById("who-name").textContent=state.user.name;
-    document.getElementById("who-role").textContent=state.user.designation;
+  /* ===================================================================
+     MY APPLICATIONS
+     =================================================================== */
+  async function renderMine(body) {
+    var rows = await S.applications.listMine(me.user.id);
+    body.innerHTML = '<div class="panel card anim"><h3>All filings</h3><p>' +
+      rows.length + " record" + (rows.length === 1 ? "" : "s") + ".</p>" +
+      (rows.length ? appTable(rows, false) : emptyBlock("Nothing here yet.")) + "</div>";
   }
-  renderRecord();
-}
-document.getElementById("sign-in-btn").onclick=()=>{loginModal.hidden=false;document.getElementById("lg-id").focus();};
-document.getElementById("lg-cancel").onclick=()=>{loginModal.hidden=true;setMsg(lgMsg,"","");};
 
-document.getElementById("login-form").onsubmit=async(e)=>{
-  e.preventDefault();
-  const o=findOfficial(document.getElementById("lg-id").value);
-  const pw=document.getElementById("lg-pw").value;
-  /* Deliberately vague: saying which half was wrong would confirm which
-     addresses are on the roster. */
-  const reject=()=>setMsg(lgMsg,"Those credentials were not recognised.","error");
-  if(!o){reject();return;}
-  if(!supabase){ if(pw===o.demoPassword) enter(o); else reject(); return; }
-  const btn=document.getElementById("lg-go"); btn.disabled=true; setMsg(lgMsg,"Checking\u2026","");
-  const {data,error}=await supabase.auth.signInWithPassword({email:o.email,password:pw});
-  btn.disabled=false;
-  if(error||!data||!data.user){reject();return;}
-  enter(o);
-};
-function enter(o){
-  state.user=o; loginModal.hidden=true;
-  document.getElementById("login-form").reset(); setMsg(lgMsg,"","");
-  applyIdentity(); notify("Signed in as "+o.name+", "+o.designation+".");
-}
-document.getElementById("sign-out").onclick=async()=>{
-  if(supabase) await supabase.auth.signOut();
-  state.user=null; applyIdentity(); notify("Signed out. You are back on the public view.");
-};
+  /* ===================================================================
+     APPLICATION DETAIL (shared by applicant and reviewer)
+     =================================================================== */
+  async function openApplication(id) {
+    var host = $("modal-host");
+    host.innerHTML = '<div class="modal" id="m-back"><div class="panel modal__card anim">' +
+      loadingBlock("Loading application\u2026") + "</div></div>";
+    try {
+      var app = await S.applications.get(id);
+      var docs = await S.documents.listForApplication(id);
+      var role = me.profile.role;
+      var isOwner = app.user_id === me.user.id;
+      var isReviewer = role === "editor" || role === "admin";
+      var editable = isOwner && app.status === "draft";
 
-function openRequest(p){
-  reqTarget=p;
-  document.getElementById("rq-sub").textContent=
-    "For khasra "+p.khasra+", "+VILLAGE.name+" \u2014 "+p.bigha.toFixed(2)+" bigha of "+p.landUse.toLowerCase()+" land.";
-  reqModal.hidden=false; setMsg(rqMsg,"","");
-  document.getElementById("rq-email").focus();
-}
-document.getElementById("rq-cancel").onclick=()=>{reqModal.hidden=true;};
-document.getElementById("req-form").onsubmit=async(e)=>{
-  e.preventDefault();
-  const payload={khasra:reqTarget.khasra,village:VILLAGE.name,
-    requester_email:document.getElementById("rq-email").value.trim(),
-    reason:document.getElementById("rq-reason").value.trim(),
-    requested_at:new Date().toISOString()};
-  if(supabase){
-    const {error}=await supabase.from("access_requests").insert(payload);
-    if(error){setMsg(rqMsg,error.message,"error");return;}
-  }else{
-    const q=JSON.parse(localStorage.getItem("bhu_requests")||"[]");
-    q.push(payload); localStorage.setItem("bhu_requests",JSON.stringify(q));
+      var rows = [
+        ["Survey number", app.survey_number], ["Village", app.village],
+        ["District", app.district], ["State", app.state],
+        ["Land area", app.land_area + " ha"],
+        ["Coordinates", Number(app.latitude).toFixed(5) + ", " + Number(app.longitude).toFixed(5)],
+        ["Status", label(app.status)], ["Filed", fmtDate(app.created_at)],
+        ["Last updated", fmtDate(app.updated_at)]
+      ];
+
+      var actions = [];
+      if (editable) {
+        actions.push('<button class="btn btn--ghost" id="a-edit">Edit draft</button>');
+        actions.push('<button class="btn btn--primary" id="a-submit">Submit application</button>');
+      }
+      if (isReviewer && app.status === "submitted")
+        actions.push('<button class="btn btn--primary" id="a-review">Take under review</button>');
+      if (isReviewer && app.status === "under_review") {
+        actions.push('<button class="btn btn--primary" id="a-verify">Verify</button>');
+        actions.push('<button class="btn btn--danger" id="a-reject">Reject</button>');
+      }
+      if (isReviewer && app.status === "verified")
+        actions.push('<button class="btn btn--ghost" id="a-publish">Publish public record</button>');
+
+      var uploadBlock = (isOwner && app.status !== "verified")
+        ? '<h3 style="margin-top:20px">Upload a document</h3>' +
+          '<div class="field"><label for="doc-type">Document type</label>' +
+          '<select id="doc-type"><option>Title deed</option><option>Survey sketch</option>' +
+          "<option>Encumbrance certificate</option><option>Identity proof</option>" +
+          "<option>Tax receipt</option><option>Other</option></select></div>" +
+          '<div class="field"><label for="doc-file">File (PDF, JPG or PNG, up to 10 MB)</label>' +
+          '<input id="doc-file" type="file" accept=".pdf,.jpg,.jpeg,.png" /></div>' +
+          '<button class="btn btn--primary" id="doc-go">Upload</button>'
+        : "";
+
+      host.innerHTML = '<div class="modal" id="m-back"><div class="panel modal__card anim">' +
+        "<h3>" + esc(app.survey_number) + " \u00b7 " + esc(app.village) + "</h3>" +
+        "<p>" + esc(app.district) + ", " + esc(app.state) + " &middot; " + badge(app.status) + "</p>" +
+        "<table><tbody>" + rows.map(function (r) {
+          return "<tr><td style='color:var(--ink-60);width:44%'>" + esc(r[0]) +
+            "</td><td class='mono'>" + esc(r[1]) + "</td></tr>";
+        }).join("") + "</tbody></table>" +
+        (app.description ? "<p style='margin-top:12px;font-size:12.5px;color:var(--ink-60)'>" +
+          esc(app.description) + "</p>" : "") +
+        '<h3 style="margin-top:20px">Documents</h3>' + docList(docs, isReviewer) +
+        uploadBlock +
+        '<div class="row-actions" style="margin-top:20px">' + actions.join("") +
+        '<button class="btn btn--ghost" id="a-close">Close</button></div>' +
+        "</div></div>";
+
+      var close = function () { host.innerHTML = ""; };
+      $("m-back").addEventListener("click", function (e) { if (e.target.id === "m-back") close(); });
+      $("a-close").onclick = close;
+
+      if ($("a-edit")) $("a-edit").onclick = function () { close(); go("apply"); renderApplyForm($("page-body"), app); };
+
+      if ($("a-submit")) $("a-submit").onclick = function () {
+        withBusy($("a-submit"), "Submitting\u2026", async function () {
+          if (!docs.length && !confirm("No documents are attached. Submit anyway?")) return;
+          await S.applications.setStatus(app.id, "submitted");
+          toast("Application submitted for review.", "ok");
+          close(); render();
+        });
+      };
+      if ($("a-review")) $("a-review").onclick = function () {
+        withBusy($("a-review"), "Updating\u2026", async function () {
+          await S.applications.setStatus(app.id, "under_review");
+          toast("Marked under review.", "ok"); close(); render();
+        });
+      };
+      if ($("a-verify")) $("a-verify").onclick = function () {
+        withBusy($("a-verify"), "Verifying\u2026", async function () {
+          await S.applications.setStatus(app.id, "verified");
+          toast("Application verified.", "ok"); close(); render();
+        });
+      };
+      if ($("a-reject")) $("a-reject").onclick = function () {
+        if (!confirm("Reject this application? The applicant will see the change.")) return;
+        withBusy($("a-reject"), "Rejecting\u2026", async function () {
+          await S.applications.setStatus(app.id, "rejected");
+          toast("Application rejected.", "ok"); close(); render();
+        });
+      };
+      if ($("a-publish")) $("a-publish").onclick = function () {
+        var name = prompt("Owner name as it should appear on the public record:", "");
+        if (name === null) return;
+        if (!name.trim()) { toast("A display name is required.", "err"); return; }
+        withBusy($("a-publish"), "Publishing\u2026", async function () {
+          await S.publicRecords.createFromApplication(app, name.trim(), me.user.id);
+          toast("Public record published.", "ok"); close();
+        });
+      };
+
+      if ($("doc-go")) $("doc-go").onclick = function () {
+        var file = $("doc-file").files[0];
+        var invalid = S.documents.validateFile(file);
+        if (invalid) { toast(invalid, "err"); return; }
+        withBusy($("doc-go"), "Uploading\u2026", async function () {
+          await S.documents.upload(me.user, app.id, $("doc-type").value, file);
+          toast("Document uploaded.", "ok");
+          close(); openApplication(app.id);
+        });
+      };
+
+      host.querySelectorAll("[data-view]").forEach(function (b) {
+        b.onclick = function () {
+          withBusy(b, "Opening\u2026", async function () {
+            var url = await S.documents.signedUrl(b.getAttribute("data-view"), 3600);
+            window.open(url, "_blank", "noopener");
+          });
+        };
+      });
+      host.querySelectorAll("[data-verify]").forEach(function (b) {
+        b.onclick = function () {
+          withBusy(b, "Verifying\u2026", async function () {
+            await S.documents.verify(b.getAttribute("data-verify"), me.user.id);
+            toast("Document verified.", "ok"); close(); openApplication(app.id);
+          });
+        };
+      });
+      host.querySelectorAll("[data-reject]").forEach(function (b) {
+        b.onclick = function () {
+          var reason = prompt("Why is this document being rejected?", "");
+          if (reason === null) return;
+          withBusy(b, "Rejecting\u2026", async function () {
+            await S.documents.reject(b.getAttribute("data-reject"), me.user.id, reason);
+            toast("Document rejected.", "ok"); close(); openApplication(app.id);
+          });
+        };
+      });
+    } catch (e) {
+      host.innerHTML = '<div class="modal" id="m-back"><div class="panel modal__card anim">' +
+        errorBlock(e.message) + '<div class="row-actions" style="margin-top:14px">' +
+        '<button class="btn btn--ghost" id="a-close">Close</button></div></div></div>';
+      $("a-close").onclick = function () { host.innerHTML = ""; };
+      $("m-back").addEventListener("click", function (e) { if (e.target.id === "m-back") host.innerHTML = ""; });
+    }
   }
-  reqModal.hidden=true; document.getElementById("req-form").reset();
-  notify("Request logged for khasra "+payload.khasra+". The Collector's office will reply by email.");
-};
 
-addEventListener("keydown",(e)=>{
-  if(e.key!=="Escape")return;
-  if(!loginModal.hidden){loginModal.hidden=true;return;}
-  if(!reqModal.hidden){reqModal.hidden=true;return;}
-  if(state.sel){select(null);fitAll();}
-});
+  function docList(docs, isReviewer) {
+    if (!docs.length) return emptyBlock("No documents attached.");
+    return "<table><thead><tr><th>Type</th><th>Uploaded</th><th>Status</th><th></th></tr></thead><tbody>" +
+      docs.map(function (d) {
+        var name = String(d.storage_path).split("/").pop();
+        var acts = '<button class="btn btn--ghost btn--sm" data-view="' + esc(d.storage_path) + '">View</button>';
+        if (isReviewer && d.status !== "verified")
+          acts += ' <button class="btn btn--ghost btn--sm" data-verify="' + esc(d.id) + '">Verify</button>';
+        if (isReviewer && d.status !== "rejected")
+          acts += ' <button class="btn btn--ghost btn--sm" data-reject="' + esc(d.id) + '">Reject</button>';
+        return "<tr><td>" + esc(d.document_type) + "<br><span style='font-size:11px;color:var(--ink-40)'>" +
+          esc(name) + "</span></td><td>" + fmtDate(d.created_at) + "</td><td>" + badge(d.status) +
+          (d.rejection_reason ? "<br><span style='font-size:11px;color:var(--err)'>" +
+            esc(d.rejection_reason) + "</span>" : "") +
+          "</td><td>" + acts + "</td></tr>";
+      }).join("") + "</tbody></table>";
+  }
 
-if(supabase){
-  const {data}=await supabase.auth.getSession();
-  const o=findOfficial(data&&data.session&&data.session.user&&data.session.user.email);
-  if(o) enter(o);
-}
+  /* ===================================================================
+     REVIEW QUEUE (editor / admin)
+     =================================================================== */
+  async function renderReview(body) {
+    body.innerHTML =
+      '<div class="panel card anim"><h3>Filter</h3><p>Filters run as database queries, not in the browser.</p>' +
+      '<div class="grid3">' +
+      '<div class="field"><label for="f-status">Status</label><select id="f-status"><option value="">All open</option>' +
+      S.APP_STATUSES.map(function (s) { return '<option value="' + s + '">' + label(s) + "</option>"; }).join("") +
+      "</select></div>" +
+      '<div class="field"><label for="f-district">District</label><input id="f-district" type="text" /></div>' +
+      '<div class="field"><label for="f-survey">Survey number</label><input id="f-survey" type="text" /></div>' +
+      '</div><button class="btn btn--primary" id="f-go">Apply filter</button></div>' +
+      '<div class="panel card anim" id="queue">' + loadingBlock("Loading queue\u2026") + "</div>";
 
-paint(); renderRail(); renderLegend(); renderStageBar(); applyIdentity();
+    async function load() {
+      var box = $("queue");
+      box.innerHTML = loadingBlock("Loading queue\u2026");
+      try {
+        var rows = await S.applications.listForReview({
+          status: $("f-status").value || null,
+          district: $("f-district").value.trim() || null,
+          survey: $("f-survey").value.trim() || null
+        });
+        box.innerHTML = "<h3>Applications</h3><p>" + rows.length + " matching.</p>" +
+          (rows.length ? appTable(rows, true) : emptyBlock("Nothing matches those filters."));
+      } catch (e) { box.innerHTML = errorBlock(e.message); }
+    }
+    $("f-go").onclick = load;
+    load();
+  }
+
+  /* ===================================================================
+     PUBLIC RECORDS
+     =================================================================== */
+  async function renderRecords(body) {
+    var rows = await S.publicRecords.list({});
+    body.innerHTML = '<div class="panel card anim"><h3>Published records</h3><p>' +
+      rows.length + " record" + (rows.length === 1 ? "" : "s") +
+      " visible. The map view lives on the public register page.</p>" +
+      (rows.length
+        ? "<table><thead><tr><th>Owner</th><th>Survey no.</th><th>Village</th><th>District</th>" +
+          "<th>Area</th><th>Coordinates</th><th>Verified</th></tr></thead><tbody>" +
+          rows.map(function (r) {
+            return "<tr><td>" + esc(r.owner_display_name) + "</td><td class='mono'>" + esc(r.survey_number) +
+              "</td><td>" + esc(r.village) + "</td><td>" + esc(r.district) +
+              "</td><td class='mono'>" + esc(r.land_area) + "</td><td class='mono'>" +
+              (r.latitude !== null ? Number(r.latitude).toFixed(4) + ", " + Number(r.longitude).toFixed(4) : "\u2014") +
+              "</td><td>" + fmtDate(r.verified_at) + "</td></tr>";
+          }).join("") + "</tbody></table>"
+        : emptyBlock("No public records have been published yet.")) + "</div>";
+  }
+
+  /* ===================================================================
+     ADMIN: USERS & ROLES
+     =================================================================== */
+  async function renderUsers(body) {
+    var rows = await S.profiles.listAll();
+    body.innerHTML = '<div class="panel card anim"><h3>Registered users</h3><p>' + rows.length +
+      " account" + (rows.length === 1 ? "" : "s") + ". You cannot change your own role.</p>" +
+      (rows.length
+        ? "<table><thead><tr><th>Name</th><th>Phone</th><th>Role</th><th>Joined</th><th></th></tr></thead><tbody>" +
+          rows.map(function (u) {
+            var self = u.id === me.user.id;
+            return "<tr><td>" + esc(u.full_name || "\u2014") + "<br><span style='font-size:11px;color:var(--ink-40)'>" +
+              esc(u.id.slice(0, 8)) + "</span></td><td class='mono'>" + esc(u.phone || "\u2014") +
+              "</td><td>" +
+              (self ? '<span class="badge">' + esc(u.role) + " (you)</span>"
+                    : '<select data-role-for="' + esc(u.id) + '" style="padding:6px 9px;border:1px solid var(--latte);border-radius:8px;background:#fff;font:inherit;font-size:12px">' +
+                      S.ROLES.map(function (r) {
+                        return '<option value="' + r + '"' + (r === u.role ? " selected" : "") + ">" + r + "</option>";
+                      }).join("") + "</select>") +
+              "</td><td>" + fmtDate(u.created_at) + "</td><td>" +
+              (self ? "" : '<button class="btn btn--ghost btn--sm" data-save-role="' + esc(u.id) + '">Save</button>') +
+              "</td></tr>";
+          }).join("") + "</tbody></table>"
+        : emptyBlock("No profiles found.")) + "</div>";
+
+    body.querySelectorAll("[data-save-role]").forEach(function (b) {
+      b.onclick = function () {
+        var uid = b.getAttribute("data-save-role");
+        var sel = body.querySelector('[data-role-for="' + uid + '"]');
+        withBusy(b, "Saving\u2026", async function () {
+          await S.profiles.setRole(uid, sel.value);
+          toast("Role updated to " + sel.value + ".", "ok");
+        });
+      };
+    });
+  }
+
+  /* ===================================================================
+     ADMIN: AUDIT LOG
+     =================================================================== */
+  async function renderAudit(body) {
+    var rows = await S.audit.list(150);
+    body.innerHTML = '<div class="panel card anim"><h3>Audit log</h3>' +
+      "<p>Read-only. This browser never writes audit rows &mdash; entries appear only where a database " +
+      "trigger or SECURITY DEFINER function writes them.</p>" +
+      (rows.length
+        ? "<table><thead><tr><th>When</th><th>Actor</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead><tbody>" +
+          rows.map(function (r) {
+            return "<tr><td>" + fmtDate(r.created_at) + "</td><td class='mono'>" +
+              esc(r.actor_id ? String(r.actor_id).slice(0, 8) : "\u2014") +
+              "</td><td>" + esc(r.action) + "</td><td>" + esc(r.entity_type || "\u2014") +
+              "<br><span style='font-size:11px;color:var(--ink-40)'>" +
+              esc(r.entity_id ? String(r.entity_id).slice(0, 8) : "") + "</span></td><td class='mono' " +
+              "style='font-size:11px;max-width:260px;overflow-wrap:anywhere'>" +
+              esc(r.details ? JSON.stringify(r.details) : "\u2014") + "</td></tr>";
+          }).join("") + "</tbody></table>"
+        : emptyBlock("No audit entries. If actions are happening but nothing appears here, the backend triggers have not been created yet.")) +
+      "</div>";
+  }
+
+  /* ===================================================================
+     PROFILE
+     =================================================================== */
+  function renderProfile(body) {
+    body.innerHTML = '<div class="panel card anim"><h3>Your details</h3>' +
+      "<p>Email is managed by Supabase Auth. Role is set by an administrator and cannot be edited here.</p>" +
+      '<div class="grid2">' +
+      '<div class="field"><label for="p-name">Full name</label><input id="p-name" type="text" value="' +
+      esc(me.profile.full_name || "") + '" /></div>' +
+      '<div class="field"><label for="p-phone">Phone</label><input id="p-phone" type="tel" value="' +
+      esc(me.profile.phone || "") + '" /></div>' +
+      '<div class="field"><label>Email</label><input type="text" value="' + esc(me.user.email) +
+      '" disabled /></div>' +
+      '<div class="field"><label>Role</label><input type="text" value="' + esc(me.profile.role) +
+      '" disabled /></div></div>' +
+      '<button class="btn btn--primary" id="p-save">Save changes</button></div>';
+
+    $("p-save").onclick = function () {
+      withBusy($("p-save"), "Saving\u2026", async function () {
+        me.profile = await S.profiles.updateMine(me.user.id, {
+          full_name: $("p-name").value.trim(),
+          phone: $("p-phone").value.trim() || null
+        });
+        $("me-name").textContent = me.profile.full_name || "Unnamed";
+        toast("Profile updated.", "ok");
+      });
+    };
+  }
+
+  /* ===================================================================
+     STARTUP
+     =================================================================== */
+  (async function start() {
+    if (!S.CONFIGURED) {
+      showAuth();
+      authMsg("Supabase is not configured yet. Set SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in supabase.js.", "err");
+      $("li-go").disabled = true; $("su-go").disabled = true;
+      return;
+    }
+    S.auth.onChange(function (event, session) {
+      if (event === "SIGNED_OUT") return teardown();
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        /* TOKEN_REFRESHED fires on an already-booted page; re-booting then
+           would wipe whatever the user was typing, so only boot if the
+           workspace is not already up. */
+        if (event === "SIGNED_IN" || !me.user) boot(session);
+      }
+    });
+    try {
+      var session = await S.auth.getSession();
+      if (session) await boot(session); else showAuth();
+    } catch (e) {
+      showAuth(); authMsg(e.message, "err");
+    }
+  })();
+})();
+
 </script>
 </body>
 </html>
